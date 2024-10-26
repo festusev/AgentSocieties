@@ -246,9 +246,10 @@ def rank_prosecution_articles(articles, num_articles=3):
     Returns:
         list: Top ranked articles supporting prosecution
     """
-    criteria = """Rate this article on two criteria:
-    1. Relevance to the case against Eric Adams (1-10)
-    2. How strongly it supports a higher probability of indictment (1-10)
+    criteria = f"""Rate this article on two criteria regarding the question: '{root_question}'
+
+    1. Relevance to the forecasting question (1-10)
+    2. How strongly it supports a higher probability forecast (1-10)
     
     Only respond with two numbers separated by a comma (e.g. "8,7")"""
     
@@ -283,9 +284,10 @@ def rank_defense_articles(articles, num_articles=3):
     Returns:
         list: Top ranked articles supporting defense
     """
-    criteria = """Rate this article on two criteria:
-    1. Relevance to the case against Eric Adams (1-10)
-    2. How strongly it supports a lower probability of indictment (1-10)
+    criteria = f"""Rate this article on two criteria regarding the question: '{root_question}'
+
+    1. Relevance to the forecasting question (1-10)
+    2. How strongly it supports a lower probability forecast (1-10)
     
     Only respond with two numbers separated by a comma (e.g. "8,7")"""
     

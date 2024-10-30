@@ -83,7 +83,7 @@ def fetch_news_articles(query, num_results=20):
 
 # --- 4. ARTICLE ANALYSIS (T=2) ---
 # Root question we're trying to forecast
-root_question = "Will Eric Adams be indicted in 2024?"
+root_question = "Will an asteroid larger than 50m diameter hit the earth in 2024?"
 
 # T = 0: Generate search query using LLM
 search_query_prompt = f"""Given the forecasting question '{root_question}', generate a search query to Google that will help gather relevant news articles and information. 
@@ -171,7 +171,7 @@ def rank_articles_unbiased(articles, num_articles=3):
 top_articles = rank_articles_unbiased(article_bank)
 
 # T = 2: Generate summary prompt using LLM
-summary_prompt_template = f"""Given the forecasting question '{root_question}', create a prompt that will help analyze and summarize the key information from the following passages:"""
+summary_prompt_template = f"""Given the forecasting question '{root_question}', please create a summary of the key information from the following passages:"""
 
 # Format articles for summary
 articles_str = "\n".join(
@@ -200,15 +200,65 @@ judge = autogen.ConversableAgent(
 
 juror1 = autogen.ConversableAgent(
     name="Juror1",
-    system_message="You are an intelligent and analytical juror. Your role is to carefully evaluate evidence and arguments to make probability forecasts.",
+    system_message="You are a 45-year-old African American high school teacher from Atlanta, Georgia. As an educator with 20 years of experience, you bring a thoughtful and analytical perspective to discussions. You're active in your local church and community organizations.",
     llm_config={"config_list": config_list},
 )
 
 juror2 = autogen.ConversableAgent(
-    name="Juror2",
-    system_message="You are an intelligent and analytical juror. Your role is to carefully evaluate evidence and arguments to make probability forecasts.",
+    name="Juror2", 
+    system_message="You are a 32-year-old Hispanic construction foreman from Phoenix, Arizona. First-generation American, bilingual, and proud of your Mexican heritage. You're pragmatic and detail-oriented, having worked your way up from entry-level positions. You also have a PhD in astrophysics and are an expert on meteorite risk.",
     llm_config={"config_list": config_list},
 )
+
+juror3 = autogen.ConversableAgent(
+    name="Juror3",
+    system_message="You are a 68-year-old retired white factory worker from Detroit, Michigan. You've witnessed your city's economic ups and downs, making you particularly interested in political and economic issues. You're a grandfather of four and volunteer at the local veterans' center. You also have a PhD in astrophysics and are an expert on meteorite risk.",
+    llm_config={"config_list": config_list},
+)
+
+juror4 = autogen.ConversableAgent(
+    name="Juror4",
+    system_message="You are a 29-year-old Asian American software developer from Seattle, Washington. Child of Korean immigrants, you're tech-savvy and data-driven in your decision-making. You're passionate about environmental issues and local politics. You also have a PhD in astrophysics and are an expert on meteorite risk.",
+    llm_config={"config_list": config_list},
+)
+
+juror5 = autogen.ConversableAgent(
+    name="Juror5",
+    system_message="You are a 51-year-old white small business owner from Des Moines, Iowa. Running a family-owned hardware store has given you strong views on economic policies and regulations. You're active in your local Chamber of Commerce. You also have a PhD in astrophysics and are an expert on meteorite risk.",
+    llm_config={"config_list": config_list},
+)
+
+juror6 = autogen.ConversableAgent(
+    name="Juror6",
+    system_message="You are a 38-year-old Native American nurse from Albuquerque, New Mexico. Your experience in healthcare has shaped your views on social policies. You're a member of the Navajo Nation and advocate for indigenous rights. You also have a PhD in astrophysics and are an expert on meteorite risk.",
+    llm_config={"config_list": config_list},
+)
+
+juror7 = autogen.ConversableAgent(
+    name="Juror7",
+    system_message="You are a 42-year-old white farmer from rural Nebraska. A fourth-generation farmer, you're concerned about agricultural policies and rural development. You have a degree in agricultural science and are tech-savvy in modern farming practices. You also have a PhD in astrophysics and are an expert on meteorite risk.",
+    llm_config={"config_list": config_list},
+)
+
+juror8 = autogen.ConversableAgent(
+    name="Juror8",
+    system_message="You are a 35-year-old African American military veteran from Virginia Beach. Your service in the Navy has given you a global perspective. Now working in cybersecurity, you're detail-oriented and security-minded. You also have a PhD in astrophysics and are an expert on meteorite risk.",
+    llm_config={"config_list": config_list},
+)
+
+juror9 = autogen.ConversableAgent(
+    name="Juror9",
+    system_message="You are a 55-year-old white suburban mom from Minneapolis, Minnesota. With a background in accounting and active involvement in local school boards, you bring both financial acumen and community perspective to discussions. You also have a PhD in astrophysics and are an expert on meteorite risk.",
+    llm_config={"config_list": config_list},
+)
+
+juror10 = autogen.ConversableAgent(
+    name="Juror10",
+    system_message="You are a 26-year-old second-generation Indian American journalist from Houston, Texas. Your work in local news has given you deep insight into community issues. You're data-oriented but also value human interest stories. You also have a PhD in astrophysics and are an expert on meteorite risk.",
+    llm_config={"config_list": config_list},
+)
+
+jurors = [juror1, juror2, juror3, juror4, juror5, juror6, juror7, juror8, juror9, juror10]
 
 prosecutor = autogen.ConversableAgent(
     name="Prosecutor",
@@ -309,3 +359,57 @@ user_agent.initiate_chat(
 defense_opening = defense.last_message()["content"]
 print("\nDefense Opening Statement:")
 print(defense_opening)
+
+# --- 6. JURY DELIBERATION AND VOTING ---
+def get_juror_forecast(juror, evidence_summary, prosecution_case, defense_case):
+    """
+    Have a juror evaluate evidence and submit their probability forecast.
+    
+    Args:
+        juror (ConversableAgent): The juror agent
+        evidence_summary (str): Summary of all evidence
+        prosecution_case (str): Prosecution's opening statement
+        defense_case (str): Defense's opening statement
+        
+    Returns:
+        float: Probability forecast from 0-100
+    """
+    deliberation_prompt = f"""Based on the following information, provide your probability forecast (0-100%) for the question: '{root_question}'
+
+Evidence Summary:
+{evidence_summary}
+
+Prosecution's Case:
+{prosecution_case}
+
+Defense's Case:
+{defense_case}
+
+Please carefully consider all evidence and arguments presented. Respond ONLY with a number between 0 and 100."""
+
+    user_agent.initiate_chat(juror, message=deliberation_prompt, silent=False, max_turns=1)
+    
+    try:
+        # Extract number from response and validate
+        forecast = float(juror.last_message()["content"].strip().replace('%', ''))
+        if not 0 <= forecast <= 100:
+            raise ValueError
+        return forecast
+    except:
+        print(f"Warning: Invalid forecast from {juror.name}, defaulting to 50")
+        return 50.0
+
+# Get forecasts from both jurors
+juror_forecasts = [get_juror_forecast(juror, summary, prosecution_opening, defense_opening) for juror in jurors]
+
+# Calculate final forecast
+final_forecast = sum(juror_forecasts) / len(juror_forecasts)
+
+# Have judge announce the verdict
+verdict_announcement = f"""The jury has reached a decision.
+
+{chr(10).join(f'Juror {i+1} Forecast: {forecast}%' for i, forecast in enumerate(juror_forecasts))}
+
+The final probability forecast for the question '{root_question}' is: {final_forecast}%"""
+
+user_agent.initiate_chat(judge, message=verdict_announcement, silent=False, max_turns=1)

@@ -41,32 +41,30 @@
           "llm": true
         }
       },
-      "Jurors": [
-        {
-          "name": "Juror1",
-          "system_message": "You are a juror tasked with evaluating evidence and making probability forecasts.",
-          "capabilities": {
-            "web_retrieval": false,
-            "llm": true
-          }
-        },
-        {
-          "name": "Juror2",
-          "system_message": "You are a juror tasked with evaluating evidence and making probability forecasts.",
-          "capabilities": {
-            "web_retrieval": false,
-            "llm": true
-          }
-        },
-        {
-          "name": "Juror3",
-          "system_message": "You are a juror tasked with evaluating evidence and making probability forecasts.",
-          "capabilities": {
-            "web_retrieval": false,
-            "llm": true
-          }
+      "Juror1": {
+        "name": "Juror1", 
+        "system_message": "You are a juror tasked with evaluating evidence and making probability forecasts.",
+        "capabilities": {
+          "web_retrieval": false,
+          "llm": true
         }
-      ]
+      },
+      "Juror2": {
+        "name": "Juror2",
+        "system_message": "You are a juror tasked with evaluating evidence and making probability forecasts.", 
+        "capabilities": {
+          "web_retrieval": false,
+          "llm": true
+        }
+      },
+      "Juror3": {
+        "name": "Juror3",
+        "system_message": "You are a juror tasked with evaluating evidence and making probability forecasts.",
+        "capabilities": {
+          "web_retrieval": false,
+          "llm": true
+        }
+      }
     },
     "scenario": [
       {
@@ -99,7 +97,7 @@
         "action_type": "message",
         "initiator": "UserAgent",
         "receiver": "HeadAgent",
-        "message": "Based on these articles, provide a concise summary of the key evidence regarding {root_question}. Focus on factual information and current developments.",
+        "message": "Based on these articles, provide a concise summary of the key evidence regarding {root_question}. Focus on factual information and current developments, pay attention to the date of the article.\n\nArticles:\n{top_articles}",
         "store": "evidence_summary"
       },
       {
@@ -130,7 +128,7 @@
         "step": "8",
         "action_type": "message",
         "initiator": "UserAgent",
-        "receiver": "Jurors",
+        "receiver": ["Juror1", "Juror2", "Juror3"],
         "message": "Consider the following: Evidence Summary: {evidence_summary}\nProsecution Opening: {prosecution_opening}\nDefense Opening: {defense_opening}\n\nBased on this information, what probability would you assign to the question: {root_question}? Provide your probability estimate (0-100%) and brief reasoning.",
         "store": "jury_forecasts"
       },

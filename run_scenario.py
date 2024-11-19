@@ -185,23 +185,22 @@ class Scenario:
     def _action_web_search(self, step):
         """
         Perform a web search action.
-
-        Args:
-            step (dict): Configuration for the web search action.
         """
         query_template = step['query']
         num_results = step.get('num_results', 10)
         store_variable = step.get('store', None)
 
-
         # Resolve placeholders in the query
         query = self._normalize_query(self._resolve_placeholders(query_template))
+        logging.info(f"Normalized search query: {query}")
+        
         # Perform search using DuckDuckGo API
         search_results = self._fetch_news_articles(query, num_results)
         
         # Store the articles if needed
         if store_variable:
             self.store[store_variable] = search_results
+            logging.info(f"Stored {len(search_results)} articles in variable: {store_variable}")
 
     
     def _normalize_query(self, query):
@@ -213,38 +212,20 @@ class Scenario:
     def _fetch_news_articles(self, query, num_results=20):
         """
         Fetch and validate news articles from DuckDuckGo search.
-        
-        Args:
-            query (str): Search query to find relevant articles
-            num_results (int): Number of articles to fetch (default: 20)
-            
-        Returns:
-            list: List of dictionaries containing article data with keys:
-                - url (str): Article URL
-                - content (str): Article text content
-                
-        Raises:
-            AssertionError: If expected number of results not found
-            Exception: If article extraction fails
         """
         articles = []
-        search_results = DDGS().text(query, max_results=num_results)
+        logging.info(f"Starting web search with query: {query}")
+        logging.info(f"Requested number of results: {num_results}")
         
-
-        # Validate we got expected number of results
-        # assert (
-        #     len(search_results) == num_results
-        # ), f"Expected {num_results} articles, but got {len(search_results)}. Might need to reduce number of articles."
+        search_results = DDGS().text(query, max_results=num_results)
         
         # Extract content from results
         for result in search_results:
             articles.append({"url": result["href"], "content": result["body"]})
-            
-        # # Final validation check
-        # if len(articles) != num_results:
-        #     raise Exception(
-        #         f"Error fetching articles. Expected {num_results} articles, but got {len(articles)}"
-        #     )
+            logging.info(f"Found article: {result['href']}")
+            logging.info(f"Article snippet: {result['body'][:200]}...")  # Log first 200 chars of content
+        
+        logging.info(f"Search completed. Retrieved {len(articles)} articles")
         return articles
 
     def _action_process_articles(self, step):

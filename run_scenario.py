@@ -3,6 +3,9 @@ import os
 import re
 from duckduckgo_search import DDGS
 import autogen
+from datetime import datetime
+import logging
+from pathlib import Path
 
 class Scenario:
     """
@@ -22,6 +25,23 @@ class Scenario:
         with open(config_path, 'r') as f:
             self.config = json.load(f)
 
+        # Setup logging
+        self.logs_dir = Path("logs")
+        self.logs_dir.mkdir(exist_ok=True)
+        
+        # Create log filename from config path and timestamp
+        config_name = Path(config_path).stem
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = self.logs_dir / f"{config_name}_{timestamp}.log"
+        
+        # Configure logging
+        logging.basicConfig(
+            filename=log_file,
+            level=logging.INFO,
+            format='%(asctime)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        
         # Initialize the variable store
         self.store = {}
 
@@ -121,10 +141,7 @@ class Scenario:
 
     def _action_message(self, step):
         """
-        Perform a message action between agents.
-
-        Args:
-            step (dict): Configuration for the message action.
+        Updated message action with logging
         """
         initiator_name = step['initiator']
         receiver_name = step['receiver']
@@ -140,21 +157,28 @@ class Scenario:
         initiator = self._get_agent(initiator_name)
         receiver = self._get_agent(receiver_name)
 
+        # Log the prompt
+        logging.info(f"PROMPT - From: {initiator_name}, To: {receiver_name}\n{message}\n")
+
         if isinstance(receiver, list):
-            # Broadcasting message to multiple agents (e.g., Jurors)
+            # Broadcasting message to multiple agents
             responses = {}
             for agent in receiver:
                 initiator.initiate_chat(agent, message=message, silent=silent, max_turns=max_turns)
-                responses[agent.name] = agent.last_message()['content']
+                response = agent.last_message()['content']
+                responses[agent.name] = response
+                logging.info(f"RESPONSE - From: {agent.name}\n{response}\n")
+            
             if store_variable:
                 self.store[store_variable] = responses
         else:
             # One-to-one message
             initiator.initiate_chat(receiver, message=message, silent=silent, max_turns=max_turns)
+            response = receiver.last_message()['content']
             if store_variable:
-                self.store[store_variable] = receiver.last_message()['content']
+                self.store[store_variable] = response
+            logging.info(f"RESPONSE - From: {receiver_name}\n{response}\n")
 
-    
     def _format_article(self, article):
         pass
         
@@ -205,21 +229,22 @@ class Scenario:
         """
         articles = []
         search_results = DDGS().text(query, max_results=num_results)
+        
 
         # Validate we got expected number of results
-        assert (
-            len(search_results) == num_results
-        ), f"Expected {num_results} articles, but got {len(search_results)}. Might need to reduce number of articles."
+        # assert (
+        #     len(search_results) == num_results
+        # ), f"Expected {num_results} articles, but got {len(search_results)}. Might need to reduce number of articles."
         
         # Extract content from results
         for result in search_results:
             articles.append({"url": result["href"], "content": result["body"]})
             
-        # Final validation check
-        if len(articles) != num_results:
-            raise Exception(
-                f"Error fetching articles. Expected {num_results} articles, but got {len(articles)}"
-            )
+        # # Final validation check
+        # if len(articles) != num_results:
+        #     raise Exception(
+        #         f"Error fetching articles. Expected {num_results} articles, but got {len(articles)}"
+        #     )
         return articles
 
     def _action_process_articles(self, step):
@@ -285,16 +310,14 @@ Article content:
         """
         Execute the scenario steps as defined in the configuration.
         """
-        print(f"Starting scenario: {self.root_question}\n")
+        logging.info(f"Starting scenario: {self.root_question}\n")
         steps = self.config.get('scenario', [])
         for step in steps:
-            print(f"Executing step {step['step']}: {step['action_type']}")
+            logging.info(f"Executing step {step['step']}: {step['action_type']}")
             self._execute_action(step)
 
-        # After running all steps, you can output or process the final results
         final_verdict = self.store.get('final_verdict', '')
-        print("\nFinal Verdict:")
-        print(final_verdict)
+        logging.info(f"\nFinal Verdict:\n{final_verdict}")
 
 if __name__ == "__main__":
     scenario = Scenario(config_path='config/eric_adams_indictment.json')

@@ -6,6 +6,10 @@ import autogen
 from datetime import datetime
 import logging
 from pathlib import Path
+import requests
+from bs4 import BeautifulSoup
+import tiktoken
+from typing import List, Dict
 
 class Scenario:
     """
@@ -211,7 +215,7 @@ class Scenario:
 
     def _fetch_news_articles(self, query, num_results=20):
         """
-        Fetch and validate news articles from DuckDuckGo search.
+        Fetch and validate news articles from DuckDuckGo search, including full content.
         """
         articles = []
         logging.info(f"Starting web search with query: {query}")
@@ -221,11 +225,115 @@ class Scenario:
         
         # Extract content from results
         for result in search_results:
-            articles.append({"url": result["href"], "content": result["body"]})
-            logging.info(f"Found article: {result['href']}")
-            logging.info(f"Article snippet: {result['body'][:200]}...")  # Log first 200 chars of content
+            url = result["href"]
+            try:
+                # Fetch full article content
+                full_content = self._fetch_article_content(url)
+                if full_content:
+                    articles.append({
+                        "url": url,
+                        "title": result.get("title", ""),
+                        "snippet": result["body"],
+                        "content": full_content
+                    })
+                    logging.info(f"Successfully fetched article from: {url}")
+                else:
+                    logging.warning(f"No content extracted from: {url}")
+            except Exception as e:
+                logging.error(f"Error fetching article from {url}: {str(e)}")
         
-        logging.info(f"Search completed. Retrieved {len(articles)} articles")
+        # Process and summarize articles
+        processed_articles = self._process_article_contents(articles)
+        logging.info(f"Search completed. Retrieved and processed {len(processed_articles)} articles")
+        return processed_articles
+
+    def _fetch_article_content(self, url: str) -> str:
+        """
+        Fetch and extract main content from an article URL.
+        """
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Remove unwanted elements
+            for element in soup.find_all(['script', 'style', 'nav', 'header', 'footer', 'iframe']):
+                element.decompose()
+            
+            # Extract main content (adjust selectors based on common article structures)
+            content = ""
+            main_content = soup.find('article') or soup.find(class_=['article', 'post', 'content', 'main-content'])
+            
+            if main_content:
+                content = main_content.get_text(separator=' ', strip=True)
+            else:
+                # Fallback to body content if no article container found
+                content = soup.body.get_text(separator=' ', strip=True)
+            
+            return content
+        except Exception as e:
+            logging.error(f"Error fetching article content: {str(e)}")
+            return ""
+
+    def _process_article_contents(self, articles: List[Dict]) -> List[Dict]:
+        """
+        Process and summarize article contents using chunks, limited to 3 chunks per article.
+        """
+        encoder = tiktoken.encoding_for_model("gpt-4")
+        chunk_size = 2000
+        max_chunks = 3
+        user_agent = self._get_agent('UserAgent')
+        summarizer_agent = self._get_agent('HeadAgent')
+        
+        for article in articles:
+            content = article['content']
+            tokens = encoder.encode(content)
+            
+            if len(tokens) > chunk_size:
+                # Split into chunks and limit to max_chunks
+                chunks = [tokens[i:i + chunk_size] for i in range(0, len(tokens), chunk_size)][:max_chunks]
+                summaries = []
+                
+                logging.info(f"\nProcessing article from: {article.get('url', 'Unknown URL')}")
+                logging.info(f"Total chunks to process: {len(chunks)}")
+                
+                for i, chunk in enumerate(chunks, 1):
+                    chunk_text = encoder.decode(chunk)
+                    prompt = f"Please provide a concise summary of this text chunk, focusing on the most important information:\n\n{chunk_text}"
+                    
+                    user_agent.initiate_chat(
+                        summarizer_agent,
+                        message=prompt,
+                        silent=True, 
+                        max_turns=1
+                    )
+                    
+                    chunk_summary = summarizer_agent.last_message()['content']
+                    summaries.append(chunk_summary)
+                    logging.info(f"\nChunk {i} Summary:\n{chunk_summary}")
+                
+                # Combine chunk summaries
+                final_summary_prompt = f"Please combine these {len(summaries)} summaries into a coherent article, focusing on the key points:\n\n{' '.join(summaries)}"
+                user_agent.initiate_chat(
+                    summarizer_agent,
+                    message=final_summary_prompt,
+                    silent=True, 
+                    max_turns=1
+                )
+                
+                final_summary = summarizer_agent.last_message()['content']
+                article['content'] = final_summary
+                logging.info(f"\nFinal Combined Summary:\n{final_summary}\n")
+                logging.info("=" * 80 + "\n")  # Separator between articles
+            else:
+                logging.info(f"\nArticle from {article.get('url', 'Unknown URL')} was short enough to use without chunking\n")
+                logging.info("=" * 80 + "\n")
+        
         return articles
 
     def _action_process_articles(self, step):

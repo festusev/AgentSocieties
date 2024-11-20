@@ -10,6 +10,11 @@ import requests
 from bs4 import BeautifulSoup
 import tiktoken
 from typing import List, Dict
+from pydantic import BaseModel
+
+class JurorProfile(BaseModel):
+    name: str
+    system_message: str
 
 class Scenario:
     """
@@ -51,16 +56,117 @@ class Scenario:
 
         # Store the root question
         self.root_question = self.config.get('root_question', '')
+        self.config_list = [{"model": "gpt-4o-mini", "api_key": os.getenv("OPENAI_API_KEY")}]
 
         # Initialize agents
         self._initialize_agents()
+
+    def _get_default_jury_profiles(self, num_jurors):
+        """
+        Get default jury profiles for the case topic
+        """
+        jury_profiles = {}
+        for i in range(num_jurors):            
+            profile = {
+                "name": f"Juror{i+1}",
+                "system_message": f"You are a juror tasked with evaluating evidence and making probability forecasts.",
+                "capabilities": {
+                    "web_retrieval": False,
+                    "llm": True
+                }
+            }
+            jury_profiles[f"Juror{i+1}"] = profile
+            self.jurors.append(f"Juror{i+1}")
+
+        return jury_profiles
+
+    def _create_clerk_agent(self):
+        """Create a specialized Clerk agent for jury selection"""
+        return autogen.ConversableAgent(
+            name="Clerk",
+            system_message="You are a court clerk responsible for jury selection. You ensure diverse representation while selecting jurors with relevant expertise for the case topic. Reply in JSON only, with no accompanying text.",
+            llm_config={"config_list": self.config_list}
+        )
+
+    def _create_user_proxy(self):
+        """Create a simple user proxy for jury selection"""
+        return autogen.ConversableAgent(
+            name="UserProxy",
+            system_message="You are a user proxy that initiates tasks.",
+            llm_config={"config_list": self.config_list}
+        )
+
+    def _initialize_jurors(self, num_jurors):
+        """Generate diverse jury profiles based on the case topic"""
+        self.jurors = []
+        generate_jurors = self.config.get('generate_jurors', False)
+        if not generate_jurors:
+            return self._get_default_jury_profiles(num_jurors)
+        
+        clerk = self._create_clerk_agent()
+        user_proxy = self._create_user_proxy()
+        
+        # Prompt for the clerk to generate profiles
+        prompt = f"""Generate {num_jurors} diverse jury profiles for a case about: {self.root_question}
+
+    Requirements:
+    1. Ensure demographic diversity (age, ethnicity, geography, profession)
+    2. Include relevant expertise for the topic
+    3. Vary socioeconomic backgrounds
+    4. Mix urban/rural perspectives
+    5. Include different educational levels
+
+    For each juror, provide:
+    - Age and demographic details
+    - Professional background
+    - Relevant expertise/experience
+    - Geographic location
+    - Key perspective they bring
+
+    Format as JSON with structure:
+    {{
+        "Juror1": {{
+            "name": "Juror1",
+            "system_message": "Detailed profile in a few sentences...",
+        }},
+        ...
+    }}"""
+
+        user_proxy.initiate_chat(clerk, message=prompt, silent=False, max_turns=1)
+        try:
+            message_content = clerk.last_message()["content"]
+            if "```json" in message_content:
+                json_content = message_content.split("```json")[1].split("```")[0].strip()
+                profiles = json.loads(json_content)
+            else:
+                profiles = json.loads(message_content)
+
+            for profile in profiles:
+                profiles[profile]["capabilities"] = {
+                    "web_retrieval": False,
+                    "llm": True
+                }
+                self.jurors.append(profile)
+            return profiles
+        except Exception as e:
+            logging.error(f"Failed to parse jury profiles JSON: {e}")
+            return self._get_default_jury_profiles(num_jurors)
 
     def _initialize_agents(self):
         """
         Initialize all agents as specified in the configuration.
         """
+        num_jurors = self.config.get('num_jurors', 3)
+        
+        # Generate jury profiles
+        jury_profiles = self._initialize_jurors(num_jurors)
+        
+        # Merge jury profiles with other agents
+        all_agents = {**self.config['agents'], **jury_profiles}
+        
+        # Initialize agents
         self.agents = {}
-        for agent_name, agent_config in self.config['agents'].items():
+        for agent_name, agent_config in all_agents.items():
             agent = self._create_agent(agent_config)
             self.agents[agent_name] = agent
 
@@ -75,10 +181,8 @@ class Scenario:
             autogen.ConversableAgent: Initialized agent.
         """
         # Using gpt-4o-mini to optimize for cost
-        config_list = [{"model": "gpt-4o-mini", "api_key": os.getenv("OPENAI_API_KEY")}]
-
         llm_enabled = agent_config['capabilities'].get('llm', False)
-        llm_config = {"config_list": config_list} if llm_enabled else False
+        llm_config = {"config_list": self.config_list} if llm_enabled else False
 
         return autogen.ConversableAgent(
             name=agent_config.get('name', ''),
@@ -159,7 +263,10 @@ class Scenario:
 
         # Get initiator and receiver agents
         initiator = self._get_agent(initiator_name)
-        receiver = self._get_agent(receiver_name)
+        if receiver_name == "Jurors":
+            receiver = self._get_agent(self.jurors)
+        else:
+            receiver = self._get_agent(receiver_name)
 
         # Log the prompt
         logging.info(f"PROMPT - From: {initiator_name}, To: {receiver_name}\n{message}\n")

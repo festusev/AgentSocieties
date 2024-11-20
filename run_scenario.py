@@ -12,10 +12,6 @@ import tiktoken
 from typing import List, Dict
 from pydantic import BaseModel
 
-class JurorProfile(BaseModel):
-    name: str
-    system_message: str
-
 class Scenario:
     """
     A modular Scenario class that executes steps based on a JSON configuration.

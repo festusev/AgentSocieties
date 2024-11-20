@@ -1,6 +1,5 @@
 {
   "root_question": "Will Kamala Harris be the next President of the United States?",
-  "generate_jury": false,
   "agents": {
     "HeadAgent": {
       "name": "HeadAgent",

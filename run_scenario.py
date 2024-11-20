@@ -57,10 +57,11 @@ class Scenario:
         # Initialize agents
         self._initialize_agents()
 
-    def _get_default_jury_profiles(self, num_jurors):
+    def _get_default_jury_profiles(self, step):
         """
         Get default jury profiles for the case topic
         """
+        num_jurors = step.get('num_jurors', 3)
         jury_profiles = {}
         for i in range(num_jurors):
             profile = {
@@ -74,14 +75,18 @@ class Scenario:
             jury_profiles[f"Juror{i+1}"] = profile
             self.jurors.append(f"Juror{i+1}")
 
+            juror = self._create_agent(profile)
+            self.agents[profile] = juror
+
         return jury_profiles
 
-    def _generate_jurors(self, num_jurors):
-        """Generate diverse jury profiles based on the case topic"""        
-        clerk = self._get_agent('Clerk')
-        user_proxy = self._get_agent('UserAgent')
-        
-        clerk_config = self.config['agents']['Clerk']['jury_selection']
+    def _action_generate_jury(self, step):
+        """Generate diverse jury profiles based on the case topic"""
+        num_jurors = step.get('num_jurors', 3)
+        clerk = self._get_agent(step['initiator'])
+        user_proxy = self._get_agent(step['receiver'])
+
+        clerk_config = self.config['agents'][step['initiator']]['jury_selection']
         # Prompt for the clerk to generate profiles
         prompt = clerk_config['prompt_template'].format(
             num_jurors=num_jurors,
@@ -105,6 +110,9 @@ class Scenario:
                     "llm": True
                 }
                 self.jurors.append(profile)
+
+                juror = self._create_agent(profiles[profile])
+                self.agents[profile] = juror
             return profiles
         except Exception as e:
             logging.error(f"Failed to parse jury profiles JSON: {e}")
@@ -123,13 +131,6 @@ class Scenario:
         # Automatically generate jury profiles if enabled
         # Otherwise, Jurors were already specified in the config
         self.jurors = [] # If "Jurors" is the recipient, these names are used
-        if self.config.get('generate_jury', False):
-            num_jurors = self.config.get('num_jurors', 3)
-            jury_profiles = self._generate_jurors(num_jurors)
-
-            for juror_name, juror_config in jury_profiles.items():
-                juror = self._create_agent(juror_config)
-                self.agents[juror_name] = juror
 
     def _create_agent(self, agent_config):
         """
@@ -199,7 +200,9 @@ class Scenario:
             step (dict): Configuration for the step/action.
         """
         action_type = step['action_type']
-        if action_type == 'message':
+        if action_type == 'generate_jury':
+            self._action_generate_jury(step)
+        elif action_type == 'message':
             self._action_message(step)
         elif action_type == 'web_search':
             self._action_web_search(step)
@@ -477,5 +480,5 @@ Article content:
         logging.info(f"\nFinal Verdict:\n{final_verdict}")
 
 if __name__ == "__main__":
-    scenario = Scenario(config_path='config/election_2024.json')
+    scenario = Scenario(config_path='config/election_2024_generate_jury.json')
     scenario.run()

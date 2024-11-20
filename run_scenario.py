@@ -57,67 +57,6 @@ class Scenario:
         # Initialize agents
         self._initialize_agents()
 
-    def _get_default_jury_profiles(self, step):
-        """
-        Get default jury profiles for the case topic
-        """
-        num_jurors = step.get('num_jurors', 3)
-        jury_profiles = {}
-        for i in range(num_jurors):
-            profile = {
-                "name": f"Juror{i+1}",
-                "system_message": f"You are a juror tasked with evaluating evidence and making probability forecasts.",
-                "capabilities": {
-                    "web_retrieval": False,
-                    "llm": True
-                }
-            }
-            jury_profiles[f"Juror{i+1}"] = profile
-            self.jurors.append(f"Juror{i+1}")
-
-            juror = self._create_agent(profile)
-            self.agents[profile] = juror
-
-        return jury_profiles
-
-    def _action_generate_jury(self, step):
-        """Generate diverse jury profiles based on the case topic"""
-        num_jurors = step.get('num_jurors', 3)
-        clerk = self._get_agent(step['initiator'])
-        user_proxy = self._get_agent(step['receiver'])
-
-        clerk_config = self.config['agents'][step['initiator']]['jury_selection']
-        # Prompt for the clerk to generate profiles
-        prompt = clerk_config['prompt_template'].format(
-            num_jurors=num_jurors,
-            root_question=self.root_question,
-            requirements="\n".join(f"{i+1}. {r}" for i, r in enumerate(clerk_config['requirements'])),
-            profile_fields="\n".join(f"- {f}" for f in clerk_config['profile_fields'])
-        )
-
-        user_proxy.initiate_chat(clerk, message=prompt, silent=False, max_turns=1)
-        try:
-            message_content = clerk.last_message()["content"]
-            if "```json" in message_content:
-                json_content = message_content.split("```json")[1].split("```")[0].strip()
-                profiles = json.loads(json_content)
-            else:
-                profiles = json.loads(message_content)
-
-            for profile in profiles:
-                profiles[profile]["capabilities"] = {
-                    "web_retrieval": False,
-                    "llm": True
-                }
-                self.jurors.append(profile)
-
-                juror = self._create_agent(profiles[profile])
-                self.agents[profile] = juror
-            return profiles
-        except Exception as e:
-            logging.error(f"Failed to parse jury profiles JSON: {e}")
-            return self._get_default_jury_profiles(num_jurors)
-
     def _initialize_agents(self):
         """
         Initialize all agents as specified in the configuration.
@@ -210,6 +149,68 @@ class Scenario:
             self._action_process_articles(step)
         else:
             print(f"Unknown action type: {action_type}")
+
+    def _get_default_jury_profiles(self, step):
+        """
+        Get default jury profiles for the case topic
+        """
+        num_jurors = step.get('num_jurors', 3)
+        jury_profiles = {}
+        for i in range(num_jurors):
+            profile = {
+                "name": f"Juror{i+1}",
+                "system_message": f"You are a juror tasked with evaluating evidence and making probability forecasts.",
+                "capabilities": {
+                    "web_retrieval": False,
+                    "llm": True
+                }
+            }
+            jury_profiles[f"Juror{i+1}"] = profile
+            self.jurors.append(f"Juror{i+1}")
+
+            juror = self._create_agent(profile)
+            self.agents[profile] = juror
+
+        return jury_profiles
+
+    def _action_generate_jury(self, step):
+        """Generate diverse jury profiles based on the case topic"""
+        num_jurors = step.get('num_jurors', 3)
+        clerk = self._get_agent(step['initiator'])
+        user_proxy = self._get_agent(step['receiver'])
+
+        clerk_config = self.config['agents'][step['initiator']]['jury_selection']
+        # Prompt for the clerk to generate profiles
+        prompt = clerk_config['prompt_template'].format(
+            num_jurors=num_jurors,
+            root_question=self.root_question,
+            requirements="\n".join(f"{i+1}. {r}" for i, r in enumerate(clerk_config['requirements'])),
+            profile_fields="\n".join(f"- {f}" for f in clerk_config['profile_fields'])
+        )
+
+        user_proxy.initiate_chat(clerk, message=prompt, silent=False, max_turns=1)
+        try:
+            message_content = clerk.last_message()["content"]
+            if "```json" in message_content:
+                json_content = message_content.split("```json")[1].split("```")[0].strip()
+                profiles = json.loads(json_content)
+            else:
+                profiles = json.loads(message_content)
+
+            for profile in profiles:
+                profiles[profile]["capabilities"] = {
+                    "web_retrieval": False,
+                    "llm": True
+                }
+                profiles[profile]["system_message"] = f"""{profiles[profile]["profile"]} You are a juror tasked with evaluating evidence and making probability forecasts with your best judgement."""
+                self.jurors.append(profile)
+
+                juror = self._create_agent(profiles[profile])
+                self.agents[profile] = juror
+            return profiles
+        except Exception as e:
+            logging.error(f"Failed to parse jury profiles JSON: {e}")
+            return self._get_default_jury_profiles(num_jurors)
 
     def _action_message(self, step):
         """
@@ -480,5 +481,5 @@ Article content:
         logging.info(f"\nFinal Verdict:\n{final_verdict}")
 
 if __name__ == "__main__":
-    scenario = Scenario(config_path='config/election_2024_generate_jury.json')
+    scenario = Scenario(config_path='config/port_strike.json')
     scenario.run()

@@ -43,7 +43,7 @@
     },
     "Clerk": {
       "name": "Clerk",
-      "system_message": "You are a court clerk responsible for jury selection. You ensure diverse representation while selecting jurors with relevant expertise for the case topic. Reply in JSON only, with no accompanying text.",
+      "system_message": "You are a court clerk responsible for jury selection. You ensure diverse representation while selecting jurors with relevant expertise for the case topic. Reply in JSON only, with no accompanying text. Use the second person to describe each juror.",
       "capabilities": {
         "web_retrieval": false,
         "llm": true
@@ -63,7 +63,7 @@
           "Geographic location",
           "Key perspective they bring"
         ],
-        "prompt_template": "Generate {num_jurors} diverse jury profiles for a case about: {root_question}\n\nRequirements:\n{requirements}\n\nFor each juror, provide:\n{profile_fields}\n\nFormat as JSON with structure:\n{{\n    \"Juror1\": {{\n        \"name\": \"Juror1\",\n        \"system_message\": \"Detailed profile in a few sentences...\"\n    }},\n    ...\n}}"
+        "prompt_template": "Generate {num_jurors} diverse jury profiles for a case about: {root_question}\n\nRequirements:\n{requirements}\n\nFor each juror, provide:\n{profile_fields}\n\nFormat as JSON with structure:\n{{\n    \"Juror1\": {{\n        \"name\": \"Juror1\",\n        \"profile\": \"Detailed profile in a few sentences in the second person...\"\n    }},\n    ...\n}}"
       }
     }
   },

@@ -66,7 +66,7 @@ class Scenario:
         Get default jury profiles for the case topic
         """
         jury_profiles = {}
-        for i in range(num_jurors):            
+        for i in range(num_jurors):
             profile = {
                 "name": f"Juror{i+1}",
                 "system_message": f"You are a juror tasked with evaluating evidence and making probability forecasts.",
@@ -80,57 +80,19 @@ class Scenario:
 
         return jury_profiles
 
-    def _create_clerk_agent(self):
-        """Create a specialized Clerk agent for jury selection"""
-        return autogen.ConversableAgent(
-            name="Clerk",
-            system_message="You are a court clerk responsible for jury selection. You ensure diverse representation while selecting jurors with relevant expertise for the case topic. Reply in JSON only, with no accompanying text.",
-            llm_config={"config_list": self.config_list}
-        )
-
-    def _create_user_proxy(self):
-        """Create a simple user proxy for jury selection"""
-        return autogen.ConversableAgent(
-            name="UserProxy",
-            system_message="You are a user proxy that initiates tasks.",
-            llm_config={"config_list": self.config_list}
-        )
-
-    def _initialize_jurors(self, num_jurors):
-        """Generate diverse jury profiles based on the case topic"""
-        self.jurors = []
-        generate_jurors = self.config.get('generate_jurors', False)
-        if not generate_jurors:
-            return self._get_default_jury_profiles(num_jurors)
+    def _generate_jurors(self, num_jurors):
+        """Generate diverse jury profiles based on the case topic"""        
+        clerk = self._get_agent('Clerk')
+        user_proxy = self._get_agent('UserAgent')
         
-        clerk = self._create_clerk_agent()
-        user_proxy = self._create_user_proxy()
-        
+        clerk_config = self.config['agents']['Clerk']['jury_selection']
         # Prompt for the clerk to generate profiles
-        prompt = f"""Generate {num_jurors} diverse jury profiles for a case about: {self.root_question}
-
-    Requirements:
-    1. Ensure demographic diversity (age, ethnicity, geography, profession)
-    2. Include relevant expertise for the topic
-    3. Vary socioeconomic backgrounds
-    4. Mix urban/rural perspectives
-    5. Include different educational levels
-
-    For each juror, provide:
-    - Age and demographic details
-    - Professional background
-    - Relevant expertise/experience
-    - Geographic location
-    - Key perspective they bring
-
-    Format as JSON with structure:
-    {{
-        "Juror1": {{
-            "name": "Juror1",
-            "system_message": "Detailed profile in a few sentences...",
-        }},
-        ...
-    }}"""
+        prompt = clerk_config['prompt_template'].format(
+            num_jurors=num_jurors,
+            root_question=self.root_question,
+            requirements="\n".join(f"{i+1}. {r}" for i, r in enumerate(clerk_config['requirements'])),
+            profile_fields="\n".join(f"- {f}" for f in clerk_config['profile_fields'])
+        )
 
         user_proxy.initiate_chat(clerk, message=prompt, silent=False, max_turns=1)
         try:
@@ -155,20 +117,23 @@ class Scenario:
     def _initialize_agents(self):
         """
         Initialize all agents as specified in the configuration.
-        """
-        num_jurors = self.config.get('num_jurors', 3)
-        
-        # Generate jury profiles
-        jury_profiles = self._initialize_jurors(num_jurors)
-        
-        # Merge jury profiles with other agents
-        all_agents = {**self.config['agents'], **jury_profiles}
-        
+        """        
         # Initialize agents
         self.agents = {}
-        for agent_name, agent_config in all_agents.items():
+        for agent_name, agent_config in self.config['agents'].items():
             agent = self._create_agent(agent_config)
             self.agents[agent_name] = agent
+
+        # Automatically generate jury profiles if enabled
+        # Otherwise, Jurors were already specified in the config
+        self.jurors = [] # If "Jurors" is the recipient, these names are used
+        if self.config.get('generate_jury', False):
+            num_jurors = self.config.get('num_jurors', 3)
+            jury_profiles = self._generate_jurors(num_jurors)
+
+            for juror_name, juror_config in jury_profiles.items():
+                juror = self._create_agent(juror_config)
+                self.agents[juror_name] = juror
 
     def _create_agent(self, agent_config):
         """
@@ -516,5 +481,5 @@ Article content:
         logging.info(f"\nFinal Verdict:\n{final_verdict}")
 
 if __name__ == "__main__":
-    scenario = Scenario(config_path='config/eric_adams_indictment.json')
+    scenario = Scenario(config_path='config/election_2024.json')
     scenario.run()

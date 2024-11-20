@@ -1,0 +1,145 @@
+{
+  "root_question": "Will Kamala Harris be the next President of the United States?",
+  "generate_jury": false,
+  "agents": {
+    "HeadAgent": {
+      "name": "HeadAgent",
+      "system_message": "You are the head agent responsible for gathering information and coordinating other agents.",
+      "capabilities": {
+        "web_retrieval": true,
+        "llm": true
+      }
+    },
+    "UserAgent": {
+      "name": "UserAgent",
+      "system_message": "You are a user agent that initiates tasks and receives responses.",
+      "capabilities": {
+        "web_retrieval": false,
+        "llm": false
+      }
+    },
+    "Judge": {
+      "name": "Judge",
+      "system_message": "You are a fair and impartial judge overseeing the trial.",
+      "capabilities": {
+        "web_retrieval": false,
+        "llm": true
+      }
+    },
+    "Prosecutor": {
+      "name": "Prosecutor",
+      "system_message": "You argue for higher probability forecasts based on the evidence.",
+      "capabilities": {
+        "web_retrieval": false,
+        "llm": true
+      }
+    },
+    "Defense": {
+      "name": "Defense",
+      "system_message": "You argue for lower probability forecasts based on the evidence.",
+      "capabilities": {
+        "web_retrieval": false,
+        "llm": true
+      }
+    },
+    "Juror1": {
+      "name": "Juror1", 
+      "system_message": "You are a juror tasked with evaluating evidence and making probability forecasts.",
+      "capabilities": {
+        "web_retrieval": false,
+        "llm": true
+      }
+    },
+    "Juror2": {
+      "name": "Juror2",
+      "system_message": "You are a juror tasked with evaluating evidence and making probability forecasts.", 
+      "capabilities": {
+        "web_retrieval": false,
+        "llm": true
+      }
+    },
+    "Juror3": {
+      "name": "Juror3",
+      "system_message": "You are a juror tasked with evaluating evidence and making probability forecasts.",
+      "capabilities": {
+        "web_retrieval": false,
+        "llm": true
+      }
+    }
+  },
+  "scenario": [
+    {
+      "step": "1",
+      "action_type": "message",
+      "initiator": "UserAgent",
+      "receiver": "HeadAgent",
+      "message": "Given the forecasting question '{root_question}', generate a search query to gather relevant news articles and information. Focus on current evidence and developments related to the question. Only output the search query and NOTHING ELSE.",
+      "store": "search_query"
+    },
+    {
+      "step": "2",
+      "action_type": "web_search",
+      "agent": "HeadAgent",
+      "query": "{search_query}",
+      "num_results": 20,
+      "store": "articles"
+    },
+    {
+      "step": "3",
+      "action_type": "process_articles",
+      "agent": "HeadAgent",
+      "articles": "{articles}",
+      "criteria": "relevance and objectivity",
+      "num_top_articles": 6,
+      "store": "top_articles"
+    },
+    {
+      "step": "4",
+      "action_type": "message",
+      "initiator": "UserAgent",
+      "receiver": "HeadAgent",
+      "message": "Based on these articles, provide a concise summary of the key evidence regarding {root_question}. Focus on factual information and current developments, pay attention to the date of the article.\n\nArticles:\n{top_articles}",
+      "store": "evidence_summary"
+    },
+    {
+      "step": "5",
+      "action_type": "message",
+      "initiator": "UserAgent",
+      "receiver": "Judge",
+      "message": "We will be evaluating {root_question}. Here is the evidence summary: {evidence_summary}. Please establish the trial rules and procedures.",
+      "store": "trial_rules"
+    },
+    {
+      "step": "6",
+      "action_type": "message",
+      "initiator": "UserAgent",
+      "receiver": "Prosecutor",
+      "message": "Based on the evidence summary: {evidence_summary}, present your opening argument for why the probability should be high. Include specific evidence and reasoning.",
+      "store": "prosecution_opening"
+    },
+    {
+      "step": "7",
+      "action_type": "message",
+      "initiator": "UserAgent",
+      "receiver": "Defense",
+      "message": "Based on the evidence summary: {evidence_summary}, present your opening argument for why the probability should be low. Include specific evidence and reasoning.",
+      "store": "defense_opening"
+    },
+    {
+      "step": "8",
+      "action_type": "message",
+      "initiator": "UserAgent",
+      "receiver": ["Juror1", "Juror2", "Juror3"],
+      "message": "Consider the following: Evidence Summary: {evidence_summary}\nProsecution Opening: {prosecution_opening}\nDefense Opening: {defense_opening}\n\nBased on this information, what probability would you assign to the question: {root_question}? Provide your probability estimate (0-100%) and brief reasoning.",
+      "store": "jury_forecasts"
+    },
+    {
+      "step": "9",
+      "action_type": "message",
+      "initiator": "UserAgent",
+      "receiver": "Judge",
+      "message": "Based on the jury forecasts: {jury_forecasts}, please provide a final summary and the median probability forecast.",
+      "store": "final_verdict"
+    }
+  ]
+}

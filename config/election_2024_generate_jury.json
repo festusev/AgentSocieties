@@ -1,5 +1,7 @@
 {
     "root_question": "Will Kamala Harris be the next President of the United States?",
+    "num_jurors": 10,
+    "generate_jury": true,
     "agents": {
       "HeadAgent": {
         "name": "HeadAgent",
@@ -41,29 +43,29 @@
           "llm": true
         }
       },
-      "Juror1": {
-        "name": "Juror1", 
-        "system_message": "You are a juror tasked with evaluating evidence and making probability forecasts.",
+      "Clerk": {
+        "name": "Clerk",
+        "system_message": "You are a court clerk responsible for jury selection. You ensure diverse representation while selecting jurors with relevant expertise for the case topic. Reply in JSON only, with no accompanying text.",
         "capabilities": {
           "web_retrieval": false,
           "llm": true
-        }
-      },
-      "Juror2": {
-        "name": "Juror2",
-        "system_message": "You are a juror tasked with evaluating evidence and making probability forecasts.", 
-        "capabilities": {
-          "web_retrieval": false,
-          "llm": true
-        }
-      },
-      "Juror3": {
-        "name": "Juror3",
-        "system_message": "You are a juror tasked with evaluating evidence and making probability forecasts.",
-        "capabilities": {
-          "web_retrieval": false,
-          "llm": true
-        }
+        },
+        "jury_selection": {
+          "requirements": [
+            "Ensure demographic diversity (age, ethnicity, geography, profession)",
+            "Include relevant expertise for the topic",
+            "Vary socioeconomic backgrounds", 
+            "Mix urban/rural perspectives",
+            "Include different educational levels"
+          ],
+          "profile_fields": [
+            "Age and demographic details",
+            "Professional background", 
+            "Relevant expertise/experience",
+            "Geographic location",
+            "Key perspective they bring"
+          ],
+          "prompt_template": "Generate {num_jurors} diverse jury profiles for a case about: {root_question}\n\nRequirements:\n{requirements}\n\nFor each juror, provide:\n{profile_fields}\n\nFormat as JSON with structure:\n{{\n    \"Juror1\": {{\n        \"name\": \"Juror1\",\n        \"system_message\": \"Detailed profile in a few sentences...\"\n    }},\n    ...\n}}"        }
       }
     },
     "scenario": [
@@ -128,7 +130,7 @@
         "step": "8",
         "action_type": "message",
         "initiator": "UserAgent",
-        "receiver": ["Juror1", "Juror2", "Juror3"],
+        "receiver": "Jurors",
         "message": "Consider the following: Evidence Summary: {evidence_summary}\nProsecution Opening: {prosecution_opening}\nDefense Opening: {defense_opening}\n\nBased on this information, what probability would you assign to the question: {root_question}? Provide your probability estimate (0-100%) and brief reasoning.",
         "store": "jury_forecasts"
       },

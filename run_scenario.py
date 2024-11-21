@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 import tiktoken
 from typing import List, Dict
 from pydantic import BaseModel
+import argparse
 
 class Scenario:
     """
@@ -19,7 +20,7 @@ class Scenario:
     This class initializes agents and performs actions such as messaging and
     web searches as specified in the config.
     """
-    def __init__(self, config_path):
+    def __init__(self, config_path: str) -> None:
         """
         Initialize the Scenario with agents and configuration.
 
@@ -57,7 +58,7 @@ class Scenario:
         # Initialize agents
         self._initialize_agents()
 
-    def _initialize_agents(self):
+    def _initialize_agents(self) -> None:
         """
         Initialize all agents as specified in the configuration.
         """        
@@ -71,7 +72,7 @@ class Scenario:
         # Otherwise, Jurors were already specified in the config
         self.jurors = [] # If "Jurors" is the recipient, these names are used
 
-    def _create_agent(self, agent_config):
+    def _create_agent(self, agent_config: dict) -> autogen.ConversableAgent:
         """
         Create an agent based on the provided configuration.
 
@@ -92,7 +93,7 @@ class Scenario:
             human_input_mode="NEVER",
         )
 
-    def _resolve_placeholders(self, text):
+    def _resolve_placeholders(self, text: str) -> str:
         """
         Resolve placeholders in the text using the variable store.
 
@@ -123,7 +124,7 @@ class Scenario:
             name (str or list): The name of the agent or list of agent names.
 
         Returns:
-            autogen.ConversableAgent or list[autogen.ConversableAgent]: The agent object(s).
+            autogen.ConversableAgent or List[autogen.ConversableAgent]: The agent object(s).
         """
         if isinstance(name, list):
             # If name is a list, return list of agents
@@ -131,7 +132,7 @@ class Scenario:
         # Otherwise return single agent
         return self.agents[name]
 
-    def _execute_action(self, step):
+    def _execute_action(self, step: dict) -> None:
         """
         Execute a single action as specified in the scenario steps.
 
@@ -150,7 +151,7 @@ class Scenario:
         else:
             print(f"Unknown action type: {action_type}")
 
-    def _get_default_jury_profiles(self, step):
+    def _get_default_jury_profiles(self, step: dict) -> dict[str, dict]:
         """
         Get default jury profiles for the case topic
         """
@@ -173,7 +174,7 @@ class Scenario:
 
         return jury_profiles
 
-    def _action_generate_jury(self, step):
+    def _action_generate_jury(self, step: dict) -> dict[str, dict]:
         """Generate diverse jury profiles based on the case topic"""
         num_jurors = step.get('num_jurors', 3)
         clerk = self._get_agent(step['initiator'])
@@ -212,7 +213,7 @@ class Scenario:
             logging.error(f"Failed to parse jury profiles JSON: {e}")
             return self._get_default_jury_profiles(num_jurors)
 
-    def _action_message(self, step):
+    def _action_message(self, step: dict) -> None:
         """
         Updated message action with logging
         """
@@ -258,7 +259,7 @@ class Scenario:
     def _format_article(self, article):
         pass
         
-    def _action_web_search(self, step):
+    def _action_web_search(self, step: dict) -> None:
         """
         Perform a web search action.
         """
@@ -279,13 +280,13 @@ class Scenario:
             logging.info(f"Stored {len(search_results)} articles in variable: {store_variable}")
 
     
-    def _normalize_query(self, query):
+    def _normalize_query(self, query: str) -> str:
         """
         Normalize the query by converting to lowercase and removing punctuation.
         """
         return query.lower().replace(",", "").replace(".", "").replace("?", "").replace("!", "").replace("'", "").replace('"', "")
 
-    def _fetch_news_articles(self, query, num_results=20):
+    def _fetch_news_articles(self, query: str, num_results=20) -> List[dict]:
         """
         Fetch and validate news articles from DuckDuckGo search, including full content.
         """
@@ -408,7 +409,7 @@ class Scenario:
         
         return articles
 
-    def _action_process_articles(self, step):
+    def _action_process_articles(self, step) -> None:
         """
         Process and rank articles based on specified criteria.
 
@@ -467,7 +468,7 @@ Article content:
         if store_variable:
             self.store[store_variable] = top_article_contents
 
-    def run(self):
+    def run(self) -> None:
         """
         Execute the scenario steps as defined in the configuration.
         """
@@ -480,6 +481,12 @@ Article content:
         final_verdict = self.store.get('final_verdict', '')
         logging.info(f"\nFinal Verdict:\n{final_verdict}")
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='Run a forecasting scenario.')
+    parser.add_argument('--config', type=str, default="config/port_strike.json", help='The scenario config to use')
+    return parser.parse_args()
+
 if __name__ == "__main__":
-    scenario = Scenario(config_path='config/port_strike.json')
+    args = parse_args()
+    scenario = Scenario(config_path=args.config)
     scenario.run()

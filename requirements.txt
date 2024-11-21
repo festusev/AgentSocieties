@@ -1,0 +1,5 @@
+duckduckgo_search==6.3.5
+autogen-agentchat~=0.2
+beautifulsoup4==4.12.3
+pydantic==2.10.0
+tiktoken==0.8.0

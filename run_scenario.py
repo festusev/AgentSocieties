@@ -364,23 +364,9 @@ class Scenario:
         user_agent = self._get_agent('UserAgent')
         summarizer_agent = self._get_agent('HeadAgent')
         
-        processed_articles = []
-        for article in articles:
-            content = article['content']
-            url = article.get('url', '')
-            tokens = encoder.encode(content)
-            
-            if len(tokens) > chunk_size:
-                chunks = [tokens[i:i + chunk_size] for i in range(0, len(tokens), chunk_size)][:max_chunks]
-                chunk_metadata = []
-                summaries = []
-                
-                logging.info(f"\nProcessing article from: {url}")
-                logging.info(f"Total chunks to process: {len(chunks)}")
-                
-                for i, chunk in enumerate(chunks, 1):
-                    chunk_text = encoder.decode(chunk)
-                    prompt = f"""First analyze the URL to extract:
+        def analyze_url(url: str) -> dict:
+            """Analyze URL for source and date"""
+            prompt = f"""Analyze only the URL to extract:
 1. Source/publisher name from the domain:
    - apnews.com → AP News
    - cnn.com → CNN
@@ -393,141 +379,113 @@ class Scenario:
 
 URL: {url}
 
-IMPORTANT: If you see a date pattern like YYYY/MM/DD in the URL, use it. If you see a domain like cnn.com, use "CNN" as the source.
-Only if these aren't found in the URL, then look for them in this content:
-{chunk_text}
-
-Also extract from the content:
-3. Title of the article
-4. A summary of the key points
-
-Format your response as JSON:
+Format response as JSON with ONLY these fields:
 {{
-    "title": "...",
-    "date": "date from URL path if YYYY/MM/DD pattern exists, otherwise from content, otherwise 'unknown'",
-    "source": "source from domain name if recognized, otherwise from content, otherwise 'unknown'",
-    "summary": "..."
+    "date": "YYYY-MM-DD if found in URL, otherwise 'unknown'",
+    "source": "source if domain recognized, otherwise 'unknown'"
+}}"""
+            
+            user_agent.initiate_chat(
+                summarizer_agent,
+                message=prompt,
+                silent=True,
+                max_turns=1
+            )
+            
+            try:
+                return json.loads(summarizer_agent.last_message()['content'])
+            except json.JSONDecodeError:
+                return {"date": "unknown", "source": "unknown"}
+
+        def analyze_content(content: str, metadata: dict) -> dict:
+            """Analyze content for title, summary, and missing metadata"""
+            prompt = f"""Analyze this content to extract:
+1. Title of the article
+2. A summary of the key points
+3. Publication date (ONLY if found in article AND current date is unknown)
+4. Source/publisher (ONLY if found in article AND current source is unknown)
+
+Current metadata:
+Date: {metadata['date']}
+Source: {metadata['source']}
+
+Content:
+{content}
+
+Return ONLY these fields in JSON:
+{{
+    "title": "actual title",
+    "summary": "actual summary",
+    "date": "{metadata['date']}" or "YYYY-MM-DD" if new date found,
+    "source": "{metadata['source']}" or "actual source" if new source found
 }}"""
 
-                    user_agent.initiate_chat(
-                        summarizer_agent,
-                        message=prompt,
-                        silent=True, 
-                        max_turns=1
-                    )
+            user_agent.initiate_chat(
+                summarizer_agent,
+                message=prompt,
+                silent=True,
+                max_turns=1
+            )
+            
+            try:
+                response = summarizer_agent.last_message()['content']
+                
+                # Check if response contains nested JSON
+                if '```json' in response:
+                    json_content = response.split('```json')[1].split('```')[0].strip()
+                    content_data = json.loads(json_content)
+                else:
+                    content_data = json.loads(response)
+                
+                # Validate and clean the data
+                if content_data.get('date', '').startswith('YYYY-MM-DD') or 'if found' in content_data.get('date', ''):
+                    content_data['date'] = metadata['date']
                     
+                if content_data.get('source', '') == 'actual source':
+                    content_data['source'] = metadata['source']
+                    
+                # Only update date/source if they were unknown and new values are valid
+                if metadata['date'] != "unknown":
+                    content_data['date'] = metadata['date']
+                if metadata['source'] != "unknown":
+                    content_data['source'] = metadata['source']
+                    
+                # Ensure summary doesn't contain JSON formatting
+                if isinstance(content_data.get('summary'), str) and '```json' in content_data['summary']:
                     try:
-                        chunk_data = json.loads(summarizer_agent.last_message()['content'])
-                        chunk_metadata.append(chunk_data)
-                        summaries.append(chunk_data['summary'])
-                    except json.JSONDecodeError:
-                        summaries.append(summarizer_agent.last_message()['content'])
+                        nested_json = json.loads(content_data['summary'].split('```json')[1].split('```')[0].strip())
+                        content_data.update(nested_json)
+                    except (json.JSONDecodeError, IndexError):
+                        pass
                     
-                    logging.info(f"\nChunk {i} processed")
-
-                # Combine metadata from all chunks
-                final_metadata = {
+                return content_data
+            except json.JSONDecodeError:
+                return {
                     "title": "unknown",
-                    "date": "unknown",
-                    "source": "unknown",
-                    "summary": ""
+                    "summary": summarizer_agent.last_message()['content'],
+                    "date": metadata['date'],
+                    "source": metadata['source']
                 }
+
+        processed_articles = []
+        for article in articles:
+            content = article['content']
+            url = article.get('url', '')
+            
+            # First analyze URL for metadata
+            metadata = analyze_url(url)
+            
+            # Then analyze content and update metadata
+            article_data = analyze_content(content, metadata)
+            
+            # If title is still unknown, use original article title
+            if article_data["title"] == "unknown":
+                article_data["title"] = article.get("title", "unknown")
                 
-                # Use the first non-"unknown" value found for each field
-                for field in ["title", "date", "source"]:
-                    for chunk in chunk_metadata:
-                        if chunk.get(field) and chunk[field].lower() != "unknown":
-                            final_metadata[field] = chunk[field]
-                            break
-                    
-                # If we still don't have a title, use the one from the original article
-                if final_metadata["title"] == "unknown":
-                    final_metadata["title"] = article.get("title", "unknown")
+            processed_articles.append(article_data)
+            logging.info(f"\nProcessed Article:\n{json.dumps(article_data, indent=2)}\n")
+            logging.info("=" * 80 + "\n")
 
-                # Now get final summary combining all chunks
-                final_summary_prompt = f"""Please create a coherent final summary of this article based on these summaries:
-
-{' '.join(summaries)}
-
-Provide only the summary text, no additional formatting."""
-
-                user_agent.initiate_chat(
-                    summarizer_agent,
-                    message=final_summary_prompt,
-                    silent=True, 
-                    max_turns=1
-                )
-                
-                final_metadata["summary"] = summarizer_agent.last_message()['content']
-                processed_articles.append(final_metadata)
-                
-                logging.info(f"\nFinal Processed Article:\n{json.dumps(final_metadata, indent=2)}\n")
-                logging.info("=" * 80 + "\n")
-            else:
-                # For short articles, process directly
-                direct_prompt = f"""Please analyze this article and provide:
-1. Title of the article (if found, otherwise "unknown")
-2. Publication date (if found, otherwise "unknown")
-3. Source/publisher name (if found, otherwise "unknown")
-4. A coherent summary of the key points
-
-Format your response as JSON:
-{{
-    "title": "...",
-    "date": "...",
-    "source": "...",
-    "summary": "..."
-}}
-
-Article content:
-{content}"""
-
-                user_agent.initiate_chat(
-                    summarizer_agent,
-                    message=direct_prompt,
-                    silent=True, 
-                    max_turns=1
-                )
-                
-                def extract_json_content(content):
-                    """Helper function to extract and parse JSON content from response"""
-                    if isinstance(content, str) and '```json' in content:
-                        try:
-                            json_content = content.split('```json')[1].split('```')[0].strip()
-                            return json.loads(json_content)
-                        except (json.JSONDecodeError, IndexError):
-                            return None
-                    return None
-
-                try:
-                    response_content = summarizer_agent.last_message()['content']
-                    json_data = extract_json_content(response_content)
-                    if json_data:
-                        article_data = {
-                            "title": json_data.get('title', 'unknown'),
-                            "date": json_data.get('date', 'unknown'),
-                            "source": json_data.get('source', 'unknown'),
-                            "summary": json_data.get('summary', '')  # Note: getting just the summary text
-                        }
-                    else:
-                        article_data = json.loads(response_content)  # Try direct JSON parsing
-                except (json.JSONDecodeError, KeyError):
-                    article_data = {
-                        "title": article.get('title', 'unknown'),
-                        "date": "unknown",
-                        "source": "unknown",
-                        "summary": response_content
-                    }
-                
-                # If we don't have a title, use the one from the original article
-                if article_data["title"] == "unknown":
-                    article_data["title"] = article.get("title", "unknown")
-                    
-                processed_articles.append(article_data)
-                logging.info(f"\nArticle processed without chunking: {article.get('url', 'Unknown URL')}\n")
-                logging.info(f"Processed Article:\n{json.dumps(article_data, indent=2)}\n")
-                logging.info("=" * 80 + "\n")
-        import pdb; pdb.set_trace()
         return processed_articles
 
     def _action_process_articles(self, step) -> None:

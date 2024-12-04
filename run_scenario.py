@@ -356,6 +356,7 @@ class Scenario:
     def _process_article_contents(self, articles: List[Dict]) -> List[Dict]:
         """
         Process and summarize article contents using chunks, limited to 3 chunks per article.
+        Returns a list of processed articles with metadata and summaries.
         """
         encoder = tiktoken.encoding_for_model("gpt-4")
         chunk_size = 2000
@@ -363,22 +364,51 @@ class Scenario:
         user_agent = self._get_agent('UserAgent')
         summarizer_agent = self._get_agent('HeadAgent')
         
+        processed_articles = []
         for article in articles:
             content = article['content']
+            url = article.get('url', '')
             tokens = encoder.encode(content)
             
             if len(tokens) > chunk_size:
-                # Split into chunks and limit to max_chunks
                 chunks = [tokens[i:i + chunk_size] for i in range(0, len(tokens), chunk_size)][:max_chunks]
+                chunk_metadata = []
                 summaries = []
                 
-                logging.info(f"\nProcessing article from: {article.get('url', 'Unknown URL')}")
+                logging.info(f"\nProcessing article from: {url}")
                 logging.info(f"Total chunks to process: {len(chunks)}")
                 
                 for i, chunk in enumerate(chunks, 1):
                     chunk_text = encoder.decode(chunk)
-                    prompt = f"Please provide a concise summary of this text chunk, focusing on the most important information:\n\n{chunk_text}"
-                    
+                    prompt = f"""First analyze the URL to extract:
+1. Source/publisher name from the domain:
+   - apnews.com → AP News
+   - cnn.com → CNN
+   - cbsnews.com → CBS News
+   - reuters.com → Reuters
+2. Publication date from URL path:
+   - /2024/10/01/ → 2024-10-01
+   - /article/2024-09-16/ → 2024-09-16
+   - /news/2024/03/ → 2024-03
+
+URL: {url}
+
+IMPORTANT: If you see a date pattern like YYYY/MM/DD in the URL, use it. If you see a domain like cnn.com, use "CNN" as the source.
+Only if these aren't found in the URL, then look for them in this content:
+{chunk_text}
+
+Also extract from the content:
+3. Title of the article
+4. A summary of the key points
+
+Format your response as JSON:
+{{
+    "title": "...",
+    "date": "date from URL path if YYYY/MM/DD pattern exists, otherwise from content, otherwise 'unknown'",
+    "source": "source from domain name if recognized, otherwise from content, otherwise 'unknown'",
+    "summary": "..."
+}}"""
+
                     user_agent.initiate_chat(
                         summarizer_agent,
                         message=prompt,
@@ -386,12 +416,41 @@ class Scenario:
                         max_turns=1
                     )
                     
-                    chunk_summary = summarizer_agent.last_message()['content']
-                    summaries.append(chunk_summary)
-                    logging.info(f"\nChunk {i} Summary:\n{chunk_summary}")
+                    try:
+                        chunk_data = json.loads(summarizer_agent.last_message()['content'])
+                        chunk_metadata.append(chunk_data)
+                        summaries.append(chunk_data['summary'])
+                    except json.JSONDecodeError:
+                        summaries.append(summarizer_agent.last_message()['content'])
+                    
+                    logging.info(f"\nChunk {i} processed")
+
+                # Combine metadata from all chunks
+                final_metadata = {
+                    "title": "unknown",
+                    "date": "unknown",
+                    "source": "unknown",
+                    "summary": ""
+                }
                 
-                # Combine chunk summaries
-                final_summary_prompt = f"Please combine these {len(summaries)} summaries into a coherent article, focusing on the key points:\n\n{' '.join(summaries)}"
+                # Use the first non-"unknown" value found for each field
+                for field in ["title", "date", "source"]:
+                    for chunk in chunk_metadata:
+                        if chunk.get(field) and chunk[field].lower() != "unknown":
+                            final_metadata[field] = chunk[field]
+                            break
+                    
+                # If we still don't have a title, use the one from the original article
+                if final_metadata["title"] == "unknown":
+                    final_metadata["title"] = article.get("title", "unknown")
+
+                # Now get final summary combining all chunks
+                final_summary_prompt = f"""Please create a coherent final summary of this article based on these summaries:
+
+{' '.join(summaries)}
+
+Provide only the summary text, no additional formatting."""
+
                 user_agent.initiate_chat(
                     summarizer_agent,
                     message=final_summary_prompt,
@@ -399,59 +458,118 @@ class Scenario:
                     max_turns=1
                 )
                 
-                final_summary = summarizer_agent.last_message()['content']
-                article['content'] = final_summary
-                logging.info(f"\nFinal Combined Summary:\n{final_summary}\n")
-                logging.info("=" * 80 + "\n")  # Separator between articles
-            else:
-                logging.info(f"\nArticle from {article.get('url', 'Unknown URL')} was short enough to use without chunking\n")
+                final_metadata["summary"] = summarizer_agent.last_message()['content']
+                processed_articles.append(final_metadata)
+                
+                logging.info(f"\nFinal Processed Article:\n{json.dumps(final_metadata, indent=2)}\n")
                 logging.info("=" * 80 + "\n")
-        
-        return articles
+            else:
+                # For short articles, process directly
+                direct_prompt = f"""Please analyze this article and provide:
+1. Title of the article (if found, otherwise "unknown")
+2. Publication date (if found, otherwise "unknown")
+3. Source/publisher name (if found, otherwise "unknown")
+4. A coherent summary of the key points
+
+Format your response as JSON:
+{{
+    "title": "...",
+    "date": "...",
+    "source": "...",
+    "summary": "..."
+}}
+
+Article content:
+{content}"""
+
+                user_agent.initiate_chat(
+                    summarizer_agent,
+                    message=direct_prompt,
+                    silent=True, 
+                    max_turns=1
+                )
+                
+                def extract_json_content(content):
+                    """Helper function to extract and parse JSON content from response"""
+                    if isinstance(content, str) and '```json' in content:
+                        try:
+                            json_content = content.split('```json')[1].split('```')[0].strip()
+                            return json.loads(json_content)
+                        except (json.JSONDecodeError, IndexError):
+                            return None
+                    return None
+
+                try:
+                    response_content = summarizer_agent.last_message()['content']
+                    json_data = extract_json_content(response_content)
+                    if json_data:
+                        article_data = {
+                            "title": json_data.get('title', 'unknown'),
+                            "date": json_data.get('date', 'unknown'),
+                            "source": json_data.get('source', 'unknown'),
+                            "summary": json_data.get('summary', '')  # Note: getting just the summary text
+                        }
+                    else:
+                        article_data = json.loads(response_content)  # Try direct JSON parsing
+                except (json.JSONDecodeError, KeyError):
+                    article_data = {
+                        "title": article.get('title', 'unknown'),
+                        "date": "unknown",
+                        "source": "unknown",
+                        "summary": response_content
+                    }
+                
+                # If we don't have a title, use the one from the original article
+                if article_data["title"] == "unknown":
+                    article_data["title"] = article.get("title", "unknown")
+                    
+                processed_articles.append(article_data)
+                logging.info(f"\nArticle processed without chunking: {article.get('url', 'Unknown URL')}\n")
+                logging.info(f"Processed Article:\n{json.dumps(article_data, indent=2)}\n")
+                logging.info("=" * 80 + "\n")
+        import pdb; pdb.set_trace()
+        return processed_articles
 
     def _action_process_articles(self, step) -> None:
         """
         Process and rank articles based on specified criteria.
-
-        Args:
-            step (dict): Configuration for the process_articles action containing:
-                - agent: Name of the agent to process articles
-                - articles: List of articles to process
-                - criteria: Ranking criteria
-                - num_top_articles: Number of top articles to keep
-                - store: Variable name to store results
         """
-        # Get parameters from step config
         agent_name = step['agent']
         articles = self.store.get('articles', [])
         criteria = step.get('criteria', 'relevance and objectivity')
         num_top_articles = step.get('num_top_articles', 6)
         store_variable = step.get('store', None)
 
-        # Get the agent
         agent = self._get_agent(agent_name)
-        
+        user_agent = self._get_agent('UserAgent')
 
         # Rank each article
         ranked_articles = []
         for article in articles:
+            # Extract the actual article data if it's nested in JSON
+            if isinstance(article['summary'], str) and '```json' in article['summary']:
+                try:
+                    json_content = article['summary'].split('```json')[1].split('```')[0].strip()
+                    nested_data = json.loads(json_content)
+                    article.update(nested_data)
+                except (json.JSONDecodeError, IndexError):
+                    pass
+
             ranking_prompt = f"""Rate this article on two criteria:
 1. Relevance to the question '{self.root_question}' (1-10)
 2. {criteria} (1-10)
 
 Only respond with two numbers separated by a comma (e.g. "8,7")
 
-Article content:
-{article['content']}"""
-
-            # Get ranking from agent
-            user_agent = self._get_agent('UserAgent')
+Article Details:
+Title: {article['title']}
+Date: {article['date']}
+Source: {article['source']}
+Summary: {article['summary']}"""
 
             user_agent.initiate_chat(agent, message=ranking_prompt, max_turns=1)
-
             
             try:
-                # Parse scores from response
                 score1, score2 = map(int, agent.last_message()['content'].strip().split(','))
                 score = (score1 + score2) / 2
             except:
@@ -460,13 +578,22 @@ Article content:
             ranked_articles.append({'article': article, 'score': score})
 
         # Sort and get top articles
-        # import pdb; pdb.set_trace()
         top_articles = sorted(ranked_articles, key=lambda x: x['score'], reverse=True)[:num_top_articles]
-        top_article_contents = [article['article']['content'] for article in top_articles]
+        
+        # Format the top articles with their metadata
+        formatted_articles = []
+        for ranked_article in top_articles:
+            article = ranked_article['article']
+            formatted_article = f"""Title: {article['title']}
+Date: {article['date']}
+Source: {article['source']}
+Summary: {article['summary']}
+---"""
+            formatted_articles.append(formatted_article)
 
         # Store results if needed
         if store_variable:
-            self.store[store_variable] = top_article_contents
+            self.store[store_variable] = formatted_articles
 
     def run(self) -> None:
         """

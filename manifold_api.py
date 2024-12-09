@@ -64,15 +64,21 @@ class FullMarket(LiteMarket):
 
 
 BASE_URL = "https://api.manifold.markets"
-MARKET_URL = BASE_URL + "/v0/markets"
+LITE_MARKETS_URL = BASE_URL + "/v0/markets"
+FULL_MARKET_URL = BASE_URL + "/v0/market"
 def get_markets(**kwargs) -> list[LiteMarket]:
-    resp = requests.get(MARKET_URL, kwargs)
+    resp = requests.get(LITE_MARKETS_URL, kwargs)
+
+    if resp.status_code != 200:
+        raise Exception(resp.text)
 
     ta = TypeAdapter(list[LiteMarket])
     return ta.validate_json(resp.text)
 
-def get_market(marketId: str, **kwargs) -> FullMarket:
-    resp = requests.get(MARKET_URL + "/" + marketId, kwargs)
+def get_full_market(marketId: str, **kwargs) -> FullMarket:
+    resp = requests.get(FULL_MARKET_URL + "/" + marketId, kwargs)
 
-    ta = TypeAdapter(list[FullMarket])
-    return ta.model_validate_json(resp.text)
+    if resp.status_code != 200:
+        raise Exception(resp.text)
+
+    return FullMarket.model_validate_json(resp.text)

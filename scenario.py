@@ -203,7 +203,7 @@ class Scenario:
             self.jurors.append(f"Juror{i + 1}")
 
             juror = self._create_agent(profile)
-            self.agents[profile] = juror
+            self.agents[profile.name] = juror
 
         return jury_profiles
 

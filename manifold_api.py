@@ -1,83 +1,78 @@
 import requests
-from typing import Optional, Dict, Any, List, Union
+from typing import Optional, Any
+from pydantic import BaseModel, Field, TypeAdapter
 
+class LiteMarket(BaseModel):
+    id: str
+    creatorId: str
+    creatorUsername: str
+    creatorName: str
+    creatorAvatarUrl: Optional[str] = None
 
-class LiteMarket:
-    def __init__(self, data: Dict[str, Any]):
-        self.id: str = data['id']
+    createdTime: int
+    closeTime: Optional[int] = None
+    question: str
 
-        self.creatorId: str = data['creatorId']
-        self.creatorUsername: str = data['creatorUsername']
-        self.creatorName: str = data['creatorName']
-        self.creatorAvatarUrl: Optional[str] = data.get('creatorAvatarUrl')
+    url: str
 
-        self.createdTime: int = data['createdTime']
-        self.closeTime: Optional[int] = data.get('closeTime')
-        self.question: str = data['question']
+    outcomeType: str
+    mechanism: str
 
-        self.url: str = data['url']
+    probability: Optional[float] = None
+    pool: Optional[dict[str, float]] = None
+    p: Optional[float] = None
+    totalLiquidity: Optional[float] = None
 
-        self.outcomeType: str = data['outcomeType']
-        self.mechanism: str = data['mechanism']
+    # Renamed min and max to avoid conflicts
+    minValue: Optional[float] = Field(None, alias="min")
+    maxValue: Optional[float] = Field(None, alias="max")
+    isLogScale: Optional[bool] = None
 
-        self.probability: float = data['probability']
-        self.pool: Dict[str, float] = data['pool']
-        self.p: Optional[float] = data.get('p')
-        self.totalLiquidity: Optional[float] = data.get('totalLiquidity')
+    volume: float
+    volume24Hours: float
 
-        self.value: Optional[float] = data.get('value')
-        self.min: Optional[float] = data.get('min')
-        self.max: Optional[float] = data.get('max')
-        self.isLogScale: Optional[bool] = data.get('isLogScale')
+    isResolved: bool
+    resolutionTime: Optional[int] = None
+    resolution: Optional[str] = None
+    resolutionProbability: Optional[float] = None
 
-        self.volume: float = data['volume']
-        self.volume24Hours: float = data['volume24Hours']
+    uniqueBettorCount: int
+    lastUpdatedTime: Optional[int] = None
+    lastBetTime: Optional[int] = None
 
-        self.isResolved: bool = data['isResolved']
-        self.resolutionTime: Optional[int] = data.get('resolutionTime')
-        self.resolution: Optional[str] = data.get('resolution')
-        self.resolutionProbability: Optional[float] = data.get('resolutionProbability')
+    token: Optional[str] = Field(None, description="Either 'MANA' or 'CASH'")
+    siblingContractId: Optional[str] = None
 
-        self.uniqueBettorCount: int = data['uniqueBettorCount']
-        self.lastUpdatedTime: Optional[int] = data.get('lastUpdatedTime')
-        self.lastBetTime: Optional[int] = data.get('lastBetTime')
-
-        self.token: Optional[str] = data.get('token')
-        self.siblingContractId: Optional[str] = data.get('siblingContractId')
 
 class FullMarket(LiteMarket):
-    def __init__(self, data: Dict[str, Any]):
-        super().__init__(data)
+    answers: Optional[list[dict[str, Any]]] = None
+    shouldAnswersSumToOne: Optional[bool] = None
+    addAnswersMode: Optional[str] = Field(
+        None, description="Options: 'ANYONE', 'ONLY_CREATOR', 'DISABLED'"
+    )
 
-        # Multi markets only
-        self.answers: Optional[List[Dict[str, Any]]] = data.get('answers')
-        self.shouldAnswersSumToOne: Optional[bool] = data.get('shouldAnswersSumToOne')
-        self.addAnswersMode: Optional[str] = data.get('addAnswersMode')
+    options: Optional[list[dict[str, str | int]]] = None
 
-        # Poll-only attributes
-        self.options: Optional[List[Dict[str, Union[str, int]]]] = data.get('options')
+    totalBounty: Optional[float] = None
+    bountyLeft: Optional[float] = None
 
-        # Bounty-only attributes
-        self.totalBounty: Optional[float] = data.get('totalBounty')
-        self.bountyLeft: Optional[float] = data.get('bountyLeft')
-
-        # Rich text and other metadata
-        self.description: Dict[str, Any] = data['description']
-        self.textDescription: str = data['textDescription']
-        self.coverImageUrl: Optional[str] = data.get('coverImageUrl')
-        self.groupSlugs: Optional[List[str]] = data.get('groupSlugs')
+    description: dict[str, Any]
+    textDescription: str
+    coverImageUrl: Optional[str] = None
+    groupSlugs: Optional[list[str]] = None
 
 
-BASE_URL = "api.manifold.markets"
+
+BASE_URL = "https://api.manifold.markets"
 MARKET_URL = BASE_URL + "/v0/markets"
-def get_markets(**kwargs) -> LiteMarket:
+def get_markets(**kwargs) -> list[LiteMarket]:
     resp = requests.get(MARKET_URL, kwargs)
-    data = resp.json()
 
-    return LiteMarket(data)
+    ta = TypeAdapter(list[LiteMarket])
+    return ta.validate_json(resp.text)
 
 def get_market(marketId: str, **kwargs) -> FullMarket:
     resp = requests.get(MARKET_URL + "/" + marketId, kwargs)
-    data = resp.json()
 
-    return FullMarket(data)
+    ta = TypeAdapter(list[FullMarket])
+    return ta.model_validate_json(resp.text)

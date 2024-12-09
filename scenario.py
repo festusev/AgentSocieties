@@ -85,7 +85,11 @@ class Scenario:
 
         # Store the root question
         self.root_question = self.config.root_question
-        self.config_list = [{"model": "gpt-4o-mini", "api_key": os.getenv("OPENAI_API_KEY")}]
+        self.config_list = [{
+            "model": "gpt-4o-mini",
+            "api_key": os.getenv("OPENAI_API_KEY"),
+            "cache_seed": None,
+        }]
 
         # Initialize agents
         self._initialize_agents()
@@ -184,30 +188,31 @@ class Scenario:
         else:
             print(f"Unknown action type: {action_type}")
 
-    def _get_default_jury_profiles(self, step: StepConfig) -> dict[str, AgentConfig]:
+    def _get_default_jury_profiles(self, step: StepConfig):
         """
         Get default jury profiles for the case topic
         """
         num_jurors = step.num_jurors
         jury_profiles = {}
-        for i in range(num_jurors):
+        juror_names = [f"Juror{i + 1}" for i in range(num_jurors)]
+        for name in juror_names:
             profile = AgentConfig(
-                name=f"Juror{i+1}",
+                name=name,
                 system_message="You are a juror tasked with evaluating evidence and making probability forecasts.",
                 capabilities={
                     "web_retrieval": False,
                     "llm": True
                 }
             )
-            jury_profiles[f"Juror{i + 1}"] = profile
-            self.jurors.append(f"Juror{i + 1}")
+            jury_profiles[name] = profile
+            self.jurors.append(name)
 
             juror = self._create_agent(profile)
             self.agents[profile.name] = juror
 
-        return jury_profiles
+        return jury_profiles, juror_names
 
-    def _action_generate_jury(self, step: StepConfig) -> dict[str, AgentConfig]:
+    def _action_generate_jury(self, step: StepConfig) -> None:
         """Generate diverse jury profiles based on the case topic"""
         num_jurors = step.num_jurors
         clerk = self._get_agent(step.initiator)
@@ -229,21 +234,25 @@ class Scenario:
                 message_content = message_content.split("```json")[1].split("```")[0].strip()
             profiles = json.loads(message_content)
 
-            for profile in profiles:
-                profiles[profile]["capabilities"] = {
-                    "web_retrieval": False,
-                    "llm": True
-                }
-                profiles[profile][
-                    "system_message"] = f"""{profiles[profile]["profile"]} You are a juror tasked with evaluating evidence and making probability forecasts with your best judgement."""
-                self.jurors.append(profile)
+            for juror_name, profile in profiles.items():
+                self.jurors.append(juror_name)
 
-                juror = self._create_agent(profiles[profile])
-                self.agents[profile] = juror
-            return profiles
+                config = AgentConfig(
+                        system_message=f"""{profile["profile"]} You are a juror tasked with evaluating evidence and making probability forecasts with your best judgement.""",
+                        capabilities={
+                            "web_retrieval": False,
+                            "llm": True
+                        },
+                        name=profile["name"]
+                )
+                juror = self._create_agent(config)
+                self.agents[juror_name] = juror
+            # return profiles
         except Exception as e:
             logging.error(f"Failed to parse jury profiles JSON: {e}")
-            return self._get_default_jury_profiles(step)
+            jurors, juror_names = self._get_default_jury_profiles(step)
+            self.agents.update(jurors)
+            self.jurors.extend(juror_names)
 
     def _action_message(self, step: StepConfig) -> None:
         """

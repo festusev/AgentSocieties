@@ -1,111 +1,85 @@
-import json
-import logging
 import os
+import json
 import re
-import argparse
-from typing import Optional
-import glob
-from scenario import Scenario  # Ensure this import points to your custom 'Scenario' class
+import numpy as np
+from scenario import Scenario
 
-logging.basicConfig(level=logging.INFO)
+def load_scenario(file_path: str):
+    """Loads a scenario JSON file."""
+    with open(file_path, 'r') as file:
+        return json.load(file)
 
+def extract_probabilities(scenario_data: dict):
+    """Extracts ground truth probability and predicted probability."""
+    final_verdict = scenario_data.get("final_verdict", "")
+    
+    match = re.search(r'(\d+)%', final_verdict)
+    predicted_prob = float(match.group(1)) / 100.0 if match else None
+    
+    return predicted_prob
 
-def extract_probability(final_verdict: str) -> Optional[float]:
-    """
-    Extract the probability from the final_verdict text.
-    This function assumes the probability is in percentage form (e.g., "85%") and converts it to decimal form (e.g., 0.85).
-    """
-    try:
-        probability_match = re.search(r"(\d+(\.\d+)?)%\s*", final_verdict)
-        if probability_match:
-            percentage = float(probability_match.group(1))
-            return percentage / 100
+def calculate_mae(ground_truth, predicted_prob):
+    """Calculates the Mean Absolute Error (MAE)."""
+    if ground_truth is None or predicted_prob is None:
         return None
-    except Exception as e:
-        logging.error(f"Error extracting probability: {e}")
-        return None
+    return abs(ground_truth - predicted_prob)
 
-
-def compare_probability_to_resolution(probability: float, resolution_probability: float) -> float:
-    """
-    Compare the extracted probability to the resolution_probability and return a score based on the comparison.
-    A smaller difference means a higher score.
-    """
-    if probability is None:
-        return 0.0
-
-    difference = abs(probability - resolution_probability)
-
-    return difference
-
-
-def evaluate_verdict(final_verdict: str, resolution_probability: float) -> dict:
-    """
-    Evaluate the final verdict based on its probability and compare it to the resolution_probability.
-    Returns a dictionary with the evaluation result.
-    """
-    probability = extract_probability(final_verdict)
-    mae = compare_probability_to_resolution(probability, resolution_probability)
-
-    return {
-        "final_verdict": final_verdict,
-        "probability": probability,
-        "resolution_probability": resolution_probability,
-        "mae": mae
-    }
-
-
-def calculate_average_mae(scenarios_path: str) -> float:
-    """
-    Go through each scenario file, calculate the MAE, and compute the average MAE.
-    """
-    total_mae = 0.0
+def evaluate_scenarios(directory: str, ground_truths: dict, log_file: str):
+    """Evaluates the MAE of scenarios in the given directory and logs results."""
+    mae_list = []
+    individual_maes = {}  
     num_scenarios = 0
+    
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.endswith(".json"):
+                file_path = os.path.join(root, file)
+                try:
+                    scenario_data = load_scenario(file_path)
+                    scenario = Scenario(file_path)
+                    final_verdict = scenario.run()
+                    print("Final verdict: ", final_verdict)
 
-    scenario_files = glob.glob(os.path.join(scenarios_path, "*.json"))
+                    question = scenario_data.get("root_question", "")
 
-    for scenario_file in scenario_files:
-        try:
-            # Load the scenario data
-            with open(scenario_file, "r") as f:
-                this_scenario = json.load(f)
-            probability = this_scenario.get('probability', 0.0)
+                    ground_truth = ground_truths.get(question, None)
 
-            # Create a Scenario object and check for the final verdict
-            curr_scenario = Scenario(scenario_file)  # Ensure this is a valid class
-            final_verdict = this_scenario.get('final_verdict', None)
-
-            if not final_verdict:
-                logging.warning(f"Missing final verdict in scenario: {scenario_file}")
-                continue
-
-            # Evaluate the verdict
-            evaluation = evaluate_verdict(final_verdict, probability)
-            mae = evaluation.get('mae', 0.0)
-            total_mae += mae
-            num_scenarios += 1
-
-        except Exception as e:
-            logging.error(f"Error processing scenario file {scenario_file}: {e}")
-
-    if num_scenarios == 0:
-        return 0.0
-    return total_mae / num_scenarios
-
-
-def main(scenarios_path: str) -> None:
-    """
-    Main function to evaluate the MAE across all scenarios in the specified path.
-    """
-    avg_mae = calculate_average_mae(scenarios_path)
-    logging.info(f"Average MAE across all scenarios: {avg_mae}")
-    print(f"Average MAE across all scenarios: {avg_mae}")
-
+                    predicted_prob = final_verdict
+                    
+                    mae = calculate_mae(ground_truth, predicted_prob)
+                    
+                    if mae is not None:
+                        mae_list.append(mae)
+                        individual_maes[question] = mae  
+                        num_scenarios += 1
+                except Exception as e:
+                    print(f"Error processing file {file_path}: {e}")
+    
+    if num_scenarios > 0:
+        average_mae = np.mean(mae_list)
+        print(f"Average MAE: {average_mae:.4f}")
+    else:
+        average_mae = None
+        print("No valid scenarios found for evaluation.")
+    
+    print("\nIndividual MAEs:")
+    for question, mae in individual_maes.items():
+        print(f"{question}: {mae:.4f}")
+    
+    log_data = {
+        "individual_maes": individual_maes,
+        "average_mae": average_mae
+    }
+    
+    with open(log_file, 'w') as log:
+        json.dump(log_data, log, indent=4)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Evaluate MAE for all scenarios in the provided directory.")
-    parser.add_argument('scenarios_path', type=str, help="Path to the directory containing scenario JSON files.")
+    gt_file_path = "config/ground_truths.json" 
+    with open(gt_file_path, 'r') as gt_file:
+        ground_truths = json.load(gt_file)
 
-    args = parser.parse_args()
+    directory = "config/manifold"  
+    log_file = "config/mae_log.json"  
 
-    main(args.scenarios_path)
+    evaluate_scenarios(directory, ground_truths, log_file)

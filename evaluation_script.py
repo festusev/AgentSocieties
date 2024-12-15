@@ -10,19 +10,24 @@ def load_scenario(file_path: str):
         return json.load(file)
 
 def extract_probabilities(scenario_data: dict):
-    """Extracts ground truth probability and predicted probability."""
-    final_verdict = scenario_data.get("final_verdict", "")
+    """Extracts ground truth probability and returns the last predicted probability."""
+    final_verdict = scenario_data.get("Judge", "")
     
-    match = re.search(r'(\d+)%', final_verdict)
-    predicted_prob = float(match.group(1)) / 100.0 if match else None
+    matches = re.findall(r'(\d+)%', final_verdict)
     
-    return predicted_prob
+    if matches:
+        last_match = float(matches[-1]) / 100.0 
+    else:
+        last_match = None
+    
+    return last_match
+
 
 def calculate_mae(ground_truth, predicted_prob):
     """Calculates the Mean Absolute Error (MAE)."""
     if ground_truth is None or predicted_prob is None:
         return None
-    return abs(ground_truth - predicted_prob)
+    return abs(float(ground_truth) - float(predicted_prob))
 
 def evaluate_scenarios(directory: str, ground_truths: dict, log_file: str):
     """Evaluates the MAE of scenarios in the given directory and logs results."""
@@ -43,10 +48,15 @@ def evaluate_scenarios(directory: str, ground_truths: dict, log_file: str):
                     question = scenario_data.get("root_question", "")
 
                     ground_truth = ground_truths.get(question, None)
+                    print("ground truth: ", ground_truth)
 
                     predicted_prob = final_verdict
+                    predicted_prob = extract_probabilities(predicted_prob)
+                    print("predicted prob: ", predicted_prob)
                     
                     mae = calculate_mae(ground_truth, predicted_prob)
+                    print("\nIndividual MAEs:", mae)
+
                     
                     if mae is not None:
                         mae_list.append(mae)

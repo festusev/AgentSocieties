@@ -4,6 +4,7 @@ import datetime
 from scenario import ScenarioConfig, StepConfig, AgentConfig
 import re
 import os
+import json
 
 DEFAULT_AGENTS: dict[str, AgentConfig] = {
     "HeadAgent": AgentConfig(
@@ -163,22 +164,49 @@ def create_scenarios(args: argparse.Namespace) -> list[ScenarioConfig]:
     # Filter the markets to match the parameters
     lite_markets = []
     for market in unfiltered_lite_markets:
-        if market.isResolved != args.is_resolved:
+        if market.isResolved != args.is_resolved or market.outcomeType != "BINARY":
             continue
         lite_markets.append(market)
 
-    print(f"Found {len(lite_markets)} matching markets")
+    print(f"Found {len(lite_markets)} matching binary markets")
     markets = [mf.get_full_market(market.id) for market in lite_markets]
 
     scenarios = []
+    ground_truths = {}  # Dictionary to store probabilities
     for market in markets:
         question = market.question
+        probability = market.probability  # Get the probability value for the market
+
+        if probability is None:
+            print(f"Skipping market {question} due to missing probability.")
+            continue  # Skip scenario if probability is None
+
         scenario = ScenarioConfig(
                 root_question=question,
                 agents=DEFAULT_AGENTS,
                 scenario=DEFAULT_STEPS
         )
-        scenarios.append(scenario)
+
+        # Add the question-probability pair to the ground_truths dictionary
+        ground_truths[question] = probability
+
+        # Save scenario to disk
+        fname = scenario.root_question.lower()
+        fname = re.sub(r'[^a-z0-9_\s]', '', fname)
+        fname = '_'.join(fname.split()[-4:])
+        file_path = os.path.join(args.out, fname + ".json")
+
+        # Save to the folder if the scenario is valid
+        print(f"Saving scenario to {file_path}")
+        os.makedirs(args.out, exist_ok=True)
+        with open(file_path, "w") as fb:
+            fb.write(scenario.model_dump_json())
+
+    # Save the ground truth probabilities to a separate JSON file
+    ground_truths_file = os.path.join(args.out, "ground_truths.json")
+    print(f"Saving ground truths to {ground_truths_file}")
+    with open(ground_truths_file, "w") as f:
+        json.dump(ground_truths, f, indent=4)
 
     return scenarios
 
@@ -190,14 +218,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     scenarios = create_scenarios(args)
-
-    # Save to a folder
-    print(f"Saving scenarios to {args.out}")
-    os.makedirs(args.out, exist_ok=True)
-    for scenario in scenarios:
-        fname = scenario.root_question.lower()
-        fname = re.sub(r'[^a-z0-9_\s]', '', fname)
-        fname = '_'.join(fname.split()[-4:])
-
-        with open(os.path.join(args.out, fname + ".json"), "w") as fb:
-            fb.write(scenario.model_dump_json())

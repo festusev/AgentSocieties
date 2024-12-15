@@ -587,7 +587,7 @@ Summary: {article['summary']}
         if step.store:
             self.store[step.store] = formatted_articles
 
-    def run(self) -> None:
+    def run(self) -> str:
         """
         Execute the scenario steps as defined in the configuration.
         """
@@ -598,3 +598,4 @@ Summary: {article['summary']}
 
         final_verdict = self.store.get('final_verdict', '')
         logging.info(f"\nFinal Verdict:\n{final_verdict}")
+        return final_verdict

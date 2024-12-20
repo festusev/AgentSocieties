@@ -39,6 +39,7 @@ class StepConfig(BaseModel):
 
 class ScenarioConfig(BaseModel):
     root_question: str = ''
+    id: Optional[str] = None
     agents: dict[str, AgentConfig]
     scenario: list[StepConfig]
 
@@ -129,7 +130,7 @@ class Scenario:
                 human_input_mode="NEVER",
         )
 
-    def _resolve_placeholders(self, text: str) -> str:
+    def _resolve_placeholders(self, text: str, agent: Optional[str] = None) -> str:
         """
         Resolve placeholders in the text using the variable store.
 
@@ -144,6 +145,9 @@ class Scenario:
             key = match.group(1)
             # First check if the key is in the store
             if key in self.store:
+                if agent is not None:
+                    return str(self.store[key][agent])
+
                 return str(self.store[key])
             # Then check if it's an attribute of self
             elif hasattr(self, key):
@@ -303,16 +307,20 @@ class Scenario:
         store_variable = step.store
 
         # Resolve placeholders in the query
-        query = self._normalize_query(self._resolve_placeholders(query_template))
+        query = self._normalize_query(self._resolve_placeholders(query_template, agent=step.agent))
         logging.info(f"Normalized search query: {query}")
 
         # Perform search using DuckDuckGo API
-        search_results = self._fetch_news_articles(query, num_results)
+        try:
+            search_results = self._fetch_news_articles(query, num_results)
 
-        # Store the articles if needed
-        if store_variable:
-            self.store[store_variable] = search_results
-            logging.info(f"Stored {len(search_results)} articles in variable: {store_variable}")
+            # Store the articles if needed
+            if store_variable:
+                self.store[store_variable] = search_results
+                logging.info(f"Stored {len(search_results)} articles in variable: {store_variable}")
+        except Exception as e:
+            logging.error(f"Error in action_web_search: {e}")
+            breakpoint()
 
     def _normalize_query(self, query: str) -> str:
         """
@@ -326,10 +334,11 @@ class Scenario:
         Fetch and validate news articles from DuckDuckGo search, including full content.
         """
         articles = []
+
         logging.info(f"Starting web search with query: {query}")
         logging.info(f"Requested number of results: {num_results}")
 
-        search_results = DDGS().text(query, max_results=num_results)
+        search_results = DDGS().text(query, max_results=num_results, backend="lite")
 
         # Extract content from results
         for result in search_results:
@@ -586,6 +595,7 @@ Summary: {article['summary']}
         # Store results if needed
         if step.store:
             self.store[step.store] = formatted_articles
+        self.top_articles = top_articles
 
     def run(self) -> str:
         """

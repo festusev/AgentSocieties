@@ -172,7 +172,6 @@ def create_scenarios(args: argparse.Namespace) -> list[ScenarioConfig]:
     markets = [mf.get_full_market(market.id) for market in lite_markets]
 
     scenarios = []
-    ground_truths = {}  # Dictionary to store probabilities
     for market in markets:
         question = market.question
         probability = market.probability  # Get the probability value for the market
@@ -182,19 +181,17 @@ def create_scenarios(args: argparse.Namespace) -> list[ScenarioConfig]:
             continue  # Skip scenario if probability is None
 
         scenario = ScenarioConfig(
+                id=market.id,
                 root_question=question,
                 agents=DEFAULT_AGENTS,
                 scenario=DEFAULT_STEPS
         )
 
-        # Add the question-probability pair to the ground_truths dictionary
-        ground_truths[question] = probability
-
         # Save scenario to disk
         fname = scenario.root_question.lower()
         fname = re.sub(r'[^a-z0-9_\s]', '', fname)
         fname = '_'.join(fname.split()[-4:])
-        file_path = os.path.join(args.out, fname + ".json")
+        file_path = os.path.join(args.out, "scenarios", fname + ".json")
 
         # Save to the folder if the scenario is valid
         print(f"Saving scenario to {file_path}")
@@ -205,16 +202,20 @@ def create_scenarios(args: argparse.Namespace) -> list[ScenarioConfig]:
     # Save the ground truth probabilities to a separate JSON file
     ground_truths_file = os.path.join(args.out, "ground_truths.json")
     print(f"Saving ground truths to {ground_truths_file}")
+
+    market_dicts = [market.model_dump() for market in markets]
     with open(ground_truths_file, "w") as f:
-        json.dump(ground_truths, f, indent=4)
+        json.dump(market_dicts, f, indent=4)
 
     return scenarios
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Creates scenarios from Manifold markets.")
     parser.add_argument("--limit", type=int, default=500, help="Max number of markets to include.")
-    parser.add_argument("--is_resolved", type=bool, default=False, help="Only include resolved markets if True, otherwise, only include unresolved markets.")
+    parser.add_argument("--is_resolved", action="store_true", default=False, help="Only include resolved markets if True, otherwise, only include unresolved markets.")
     parser.add_argument("--out", type=str, default="config/manifold/", help="Output directory.")
     args = parser.parse_args()
+
+    os.makedirs(os.path.join(args.out, "scenarios"))
 
     scenarios = create_scenarios(args)

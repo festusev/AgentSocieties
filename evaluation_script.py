@@ -3,16 +3,13 @@ import json
 import re
 import numpy as np
 from scenario import Scenario
+import argparse
+import pydantic
+from manifold_api import FullMarket
+import traceback
 
-def load_scenario(file_path: str):
-    """Loads a scenario JSON file."""
-    with open(file_path, 'r') as file:
-        return json.load(file)
-
-def extract_probabilities(scenario_data: dict):
+def extract_probabilities(final_verdict: str):
     """Extracts ground truth probability and returns the last predicted probability."""
-    final_verdict = scenario_data.get("Judge", "")
-    
     matches = re.findall(r'(\d+)%', final_verdict)
     
     if matches:
@@ -29,67 +26,60 @@ def calculate_mae(ground_truth, predicted_prob):
         return None
     return abs(float(ground_truth) - float(predicted_prob))
 
-def evaluate_scenarios(directory: str, ground_truths: dict, log_file: str):
+def evaluate_scenarios(directory: str, ground_truths: dict[str, FullMarket], log_file: str):
     """Evaluates the MAE of scenarios in the given directory and logs results."""
-    mae_list = []
-    individual_maes = {}  
-    num_scenarios = 0
-    
+    results = []
+
     for root, _, files in os.walk(directory):
         for file in files:
             if file.endswith(".json"):
                 file_path = os.path.join(root, file)
                 try:
-                    scenario_data = load_scenario(file_path)
                     scenario = Scenario(file_path)
+                    if scenario.config.id not in ground_truths.keys():
+                        continue
+
                     final_verdict = scenario.run()
                     print("Final verdict: ", final_verdict)
 
-                    question = scenario_data.get("root_question", "")
-
-                    ground_truth = ground_truths.get(question, None)
+                    ground_truth = ground_truths[scenario.config.id]
                     print("ground truth: ", ground_truth)
 
-                    predicted_prob = final_verdict
-                    predicted_prob = extract_probabilities(predicted_prob)
-                    print("predicted prob: ", predicted_prob)
+                    predicted_prob = extract_probabilities(final_verdict["Judge"])
+                    print("predicted prob: ", final_verdict)
                     
-                    mae = calculate_mae(ground_truth, predicted_prob)
-                    print("\nIndividual MAEs:", mae)
+                    mae = calculate_mae(ground_truth.p, predicted_prob)
 
-                    
-                    if mae is not None:
-                        mae_list.append(mae)
-                        individual_maes[question] = mae  
-                        num_scenarios += 1
-                except Exception as e:
-                    print(f"Error processing file {file_path}: {e}")
-    
-    if num_scenarios > 0:
-        average_mae = np.mean(mae_list)
-        print(f"Average MAE: {average_mae:.4f}")
-    else:
-        average_mae = None
-        print("No valid scenarios found for evaluation.")
-    
-    print("\nIndividual MAEs:")
-    for question, mae in individual_maes.items():
-        print(f"{question}: {mae:.4f}")
-    
-    log_data = {
-        "individual_maes": individual_maes,
-        "average_mae": average_mae
-    }
+                    if predicted_prob > 0.5 and ground_truth.resolution.lower() == "yes":
+                        accuracy = 1
+                    else:
+                        accuracy = 0
+
+                    print(f"Result for {ground_truth.question}: correct = {accuracy} mae = {mae}")
+                    results.append({"id": ground_truth.id, "accuracy": accuracy, "mae": mae, "top_articles": scenario.top_articles})
+
+                except Exception:
+                    print(f"Error processing file {file_path}: \n{traceback.format_exc()}")
+                    breakpoint()
     
     with open(log_file, 'w') as log:
-        json.dump(log_data, log, indent=4)
+        json.dump(results, log, indent=4)
+    breakpoint()
 
 if __name__ == "__main__":
-    gt_file_path = "config/ground_truths.json" 
-    with open(gt_file_path, 'r') as gt_file:
-        ground_truths = json.load(gt_file)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=str, default="config/manifold")
+    parser.add_argument("--ground_truth", type=str, default="config/manifold/ground_truths.json")
+    args = parser.parse_args()
 
-    directory = "config/manifold"  
-    log_file = "config/mae_log.json"  
+    ta = pydantic.TypeAdapter(list[FullMarket])
+    with open(os.path.join(args.dataset, "ground_truths.json"), 'r') as gt_file:
+        ground_truth_list = ta.validate_json(gt_file.read())[:3]
+
+    # Pivot the ground truth data to be a dictionary of ids
+    ground_truths = {market.id: market for market in ground_truth_list}
+
+    directory = os.path.join(args.dataset, "scenarios")
+    log_file = args.dataset
 
     evaluate_scenarios(directory, ground_truths, log_file)

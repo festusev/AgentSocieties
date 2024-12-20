@@ -80,7 +80,7 @@ DEFAULT_STEPS: list[StepConfig] = [
         action_type="generate_jury",
         initiator="Clerk",
         receiver="UserAgent",
-        num_jurors=11
+        num_jurors=5
     ),
     StepConfig(
         step="1",

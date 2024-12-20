@@ -56,15 +56,22 @@ def evaluate_scenarios(directory: str, ground_truths: dict[str, FullMarket], log
                         accuracy = 0
 
                     print(f"Result for {ground_truth.question}: correct = {accuracy} mae = {mae}")
-                    results.append({"id": ground_truth.id, "accuracy": accuracy, "mae": mae, "top_articles": scenario.top_articles})
+                    results.append({
+                        "id": ground_truth.id,
+                        "accuracy": accuracy,
+                        "mae": mae,
+                        "predicted_prob": predicted_prob,
+                        "resolution": ground_truth.resolution,
+                        "scenario_store": scenario.store
+                    })
 
+
+                    with open(log_file, 'w') as log:
+                        json.dump(results, log, indent=4)
                 except Exception:
                     print(f"Error processing file {file_path}: \n{traceback.format_exc()}")
                     breakpoint()
     
-    with open(log_file, 'w') as log:
-        json.dump(results, log, indent=4)
-    breakpoint()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -74,12 +81,12 @@ if __name__ == "__main__":
 
     ta = pydantic.TypeAdapter(list[FullMarket])
     with open(os.path.join(args.dataset, "ground_truths.json"), 'r') as gt_file:
-        ground_truth_list = ta.validate_json(gt_file.read())[:3]
+        ground_truth_list = ta.validate_json(gt_file.read())
 
     # Pivot the ground truth data to be a dictionary of ids
     ground_truths = {market.id: market for market in ground_truth_list}
 
     directory = os.path.join(args.dataset, "scenarios")
-    log_file = args.dataset
+    log_file = os.path.join(args.dataset, "results.json")
 
     evaluate_scenarios(directory, ground_truths, log_file)

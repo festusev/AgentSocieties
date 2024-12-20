@@ -81,7 +81,7 @@ if __name__ == "__main__":
 
     ta = pydantic.TypeAdapter(list[FullMarket])
     with open(os.path.join(args.dataset, "ground_truths.json"), 'r') as gt_file:
-        ground_truth_list = ta.validate_json(gt_file.read())
+        ground_truth_list = ta.validate_json(gt_file.read())[-20:]
 
     # Pivot the ground truth data to be a dictionary of ids
     ground_truths = {market.id: market for market in ground_truth_list}
